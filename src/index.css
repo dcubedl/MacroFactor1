@@ -1,0 +1,79 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+:root {
+  --bg: #0A0A0F;
+  --bg2: #12121A;
+  --card: #13131C;
+  --cardH: #1A1A25;
+  --elev: #1C1C28;
+  --bdr: rgba(255,255,255,0.05);
+  --bdrL: rgba(255,255,255,0.1);
+  --t1: #F0F0F5;
+  --t2: #8888A0;
+  --t3: #55556A;
+  --acc: #FF1744;
+  --accG: rgba(255,23,68,0.3);
+  --ok: #00E676;
+  --warn: #FFAB00;
+  --fd: 'Outfit', sans-serif;
+  --fm: 'JetBrains Mono', monospace;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body, #root {
+  background: var(--bg);
+  color: var(--t1);
+  font-family: var(--fd);
+  min-height: 100vh;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+.shell {
+  max-width: 430px;
+  margin: 0 auto;
+  min-height: 100vh;
+  position: relative;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+::-webkit-scrollbar { width: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--t3); border-radius: 4px; }
+
+/* Animations */
+@keyframes fiu { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes fi { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+@keyframes rr { 0% { transform: scale(.3) rotate(-10deg); opacity: 0; } 60% { transform: scale(1.15) rotate(2deg); opacity: 1; } 100% { transform: scale(1) rotate(0); opacity: 1; } }
+@keyframes su { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+@keyframes gp { 0%,100% { filter: drop-shadow(0 0 8px var(--gc, rgba(255,23,68,.3))); } 50% { filter: drop-shadow(0 0 20px var(--gc, rgba(255,23,68,.5))); } }
+@keyframes sl { 0% { top: -4px; } 100% { top: calc(100% + 4px); } }
+@keyframes pf { from { width: 0%; } }
+@keyframes cu { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes bg { from { height: 0%; } }
+@keyframes sf { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+@keyframes popIn { 0% { opacity: 0; transform: scale(0.92); } 60% { opacity: 1; transform: scale(1.02); } 100% { opacity: 1; transform: scale(1); } }
+
+.fiu { animation: fiu .5s ease forwards; }
+.fi { animation: fi .4s ease forwards; }
+.s1 { animation-delay: .05s; opacity: 0; }
+.s2 { animation-delay: .1s; opacity: 0; }
+.s3 { animation-delay: .15s; opacity: 0; }
+.s4 { animation-delay: .2s; opacity: 0; }
+.s5 { animation-delay: .25s; opacity: 0; }
+.pop-in { animation: popIn .4s cubic-bezier(0.22, 1.2, 0.36, 1) both; }
+.ps1 { animation-delay: .05s; opacity: 0; }
+.ps2 { animation-delay: .10s; opacity: 0; }
+.ps3 { animation-delay: .15s; opacity: 0; }
+.ps4 { animation-delay: .20s; opacity: 0; }
+.ps5 { animation-delay: .25s; opacity: 0; }
+.ps6 { animation-delay: .30s; opacity: 0; }
+.ps7 { animation-delay: .35s; opacity: 0; }
+.ps8 { animation-delay: .40s; opacity: 0; }
+
+/* Button press feedback */
+button { transition: transform .15s cubic-bezier(0.22, 1.2, 0.36, 1); }
+button:active { transform: scale(0.95); }
