@@ -1,5 +1,6 @@
 import os
 from datetime import date as DateType
+from typing import Optional
 
 from supabase import create_client, Client
 from fastapi import HTTPException
@@ -212,5 +213,253 @@ async def update_daily_score(
 
     if not result.data:
         raise HTTPException(status_code=500, detail="Upsert returned no data.")
+
+    return result.data[0]
+
+
+# ---------------------------------------------------------------------------
+# exercises
+# ---------------------------------------------------------------------------
+
+async def get_exercises(user_id: str) -> list[dict]:
+    """
+    Return all global exercises plus the user's own custom exercises.
+
+    Global exercises (is_custom=false) are visible to everyone.
+    Custom exercises are filtered to the requesting user.
+    """
+    try:
+        result = (
+            service_client
+            .table("exercises")
+            .select("*")
+            .or_(f"is_custom.eq.false,user_id.eq.{user_id}")
+            .order("name")
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch exercises: {exc}")
+
+    return result.data or []
+
+
+async def create_custom_exercise(user_id: str, exercise_data: dict) -> dict:
+    """Insert a custom exercise owned by the user."""
+    payload = {"user_id": user_id, "is_custom": True, **exercise_data}
+    try:
+        result = service_client.table("exercises").insert(payload).execute()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to create exercise: {exc}")
+
+    if not result.data:
+        raise HTTPException(status_code=500, detail="Insert returned no data.")
+
+    return result.data[0]
+
+
+# ---------------------------------------------------------------------------
+# workout_plans
+# ---------------------------------------------------------------------------
+
+async def save_workout_plan(user_id: str, plan: dict) -> dict:
+    """
+    Persist a generated workout plan.
+
+    plan keys: plan_name, description, goal, days_per_week, days (list)
+    The `days` list is stored in the workout_plan_exercises join table.
+    """
+    plan_row = {
+        "user_id": user_id,
+        "plan_name": plan.get("plan_name", "My Plan"),
+        "description": plan.get("description", ""),
+        "goal": plan.get("goal", "general_fitness"),
+        "days_per_week": plan.get("days_per_week", 3),
+    }
+    try:
+        result = service_client.table("workout_plans").insert(plan_row).execute()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to save workout plan: {exc}")
+
+    if not result.data:
+        raise HTTPException(status_code=500, detail="Plan insert returned no data.")
+
+    plan_id = result.data[0]["id"]
+
+    # Insert exercise rows for each day
+    exercise_rows = []
+    for day in plan.get("days", []):
+        for order_idx, ex in enumerate(day.get("exercises", []), start=1):
+            exercise_rows.append({
+                "plan_id": plan_id,
+                "exercise_id": ex["exercise_id"],
+                "day_number": day["day_number"],
+                "sets": ex.get("sets", 3),
+                "reps": ex.get("reps", 10),
+                "rest_sec": ex.get("rest_sec", 60),
+                "order_index": order_idx,
+            })
+
+    if exercise_rows:
+        try:
+            service_client.table("workout_plan_exercises").insert(exercise_rows).execute()
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to save plan exercises: {exc}",
+            )
+
+    return result.data[0]
+
+
+async def get_workout_plans(user_id: str) -> list[dict]:
+    """Return all workout plans for the user, newest first."""
+    try:
+        result = (
+            service_client
+            .table("workout_plans")
+            .select("*, workout_plan_exercises(*, exercises(*))")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch workout plans: {exc}")
+
+    return result.data or []
+
+
+# ---------------------------------------------------------------------------
+# workout_logs
+# ---------------------------------------------------------------------------
+
+async def save_workout_log(user_id: str, log_data: dict) -> dict:
+    """
+    Insert a workout log and its per-exercise sets.
+
+    log_data keys:
+        plan_id   : Optional int
+        notes     : Optional str
+        exercises : list of {exercise_id, sets: [{set_number, reps, weight_kg, is_bodyweight}]}
+    """
+    log_row = {
+        "user_id": user_id,
+        "plan_id": log_data.get("plan_id"),
+        "notes": log_data.get("notes"),
+    }
+    try:
+        result = service_client.table("workout_logs").insert(log_row).execute()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to save workout log: {exc}")
+
+    if not result.data:
+        raise HTTPException(status_code=500, detail="Log insert returned no data.")
+
+    log_id = result.data[0]["id"]
+
+    # Insert per-exercise set rows
+    exercise_rows = []
+    for ex in log_data.get("exercises", []):
+        exercise_rows.append({
+            "log_id": log_id,
+            "exercise_id": ex["exercise_id"],
+            "sets_completed": ex["sets"],  # stored as JSONB
+        })
+
+    if exercise_rows:
+        try:
+            service_client.table("workout_log_exercises").insert(exercise_rows).execute()
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to save log exercises: {exc}",
+            )
+
+    return result.data[0]
+
+
+async def get_workout_history(user_id: str, limit: int = 20) -> list[dict]:
+    """Return recent workout logs for the user, newest first."""
+    try:
+        result = (
+            service_client
+            .table("workout_logs")
+            .select("*, workout_log_exercises(*, exercises(name, muscle_group))")
+            .eq("user_id", user_id)
+            .order("logged_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch workout history: {exc}")
+
+    return result.data or []
+
+
+async def get_workout_log_dates(user_id: str) -> list[DateType]:
+    """Return all dates on which the user has logged a workout."""
+    try:
+        result = (
+            service_client
+            .table("workout_logs")
+            .select("logged_at")
+            .eq("user_id", user_id)
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch log dates: {exc}")
+
+    dates = []
+    for row in result.data or []:
+        raw = row.get("logged_at", "")
+        if raw:
+            # logged_at is a timestamptz; take just the date part
+            dates.append(DateType.fromisoformat(raw[:10]))
+    return dates
+
+
+# ---------------------------------------------------------------------------
+# workout_xp
+# ---------------------------------------------------------------------------
+
+async def get_workout_xp(user_id: str) -> Optional[dict]:
+    """Return the user's current workout XP row, or None."""
+    try:
+        result = (
+            service_client
+            .table("workout_xp")
+            .select("*")
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch workout XP: {exc}")
+
+    return result.data[0] if result.data else None
+
+
+async def upsert_workout_xp(user_id: str, new_total_xp: int, rank: str) -> dict:
+    """
+    Upsert the workout_xp row for a user.
+
+    Uses on_conflict so that INSERT and UPDATE are both handled atomically.
+    """
+    payload = {
+        "user_id": user_id,
+        "total_xp": new_total_xp,
+        "rank": rank,
+    }
+    try:
+        result = (
+            service_client
+            .table("workout_xp")
+            .upsert(payload, on_conflict="user_id")
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to update workout XP: {exc}")
+
+    if not result.data:
+        raise HTTPException(status_code=500, detail="XP upsert returned no data.")
 
     return result.data[0]

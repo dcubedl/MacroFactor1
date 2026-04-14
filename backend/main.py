@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from routes.auth import router as auth_router
 from routes.food import router as food_router
+from routes.workouts import router as workouts_router
 
 app = FastAPI(title="MacroFactor API", version="0.1.0")
 
@@ -27,6 +28,7 @@ app.add_middleware(
 
 app.include_router(auth_router, prefix="/api")
 app.include_router(food_router, prefix="/api")
+app.include_router(workouts_router, prefix="/api")
 
 
 @app.get("/health")

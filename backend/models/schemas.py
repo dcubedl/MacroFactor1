@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr
-from typing import Optional
+from typing import List, Optional
 
 
 # ---------------------------------------------------------------------------
@@ -112,3 +112,52 @@ class FoodScanError(BaseModel):
     """Returned when scanning fails (bad image, API failure, etc.)."""
 
     detail: str
+
+
+# ---------------------------------------------------------------------------
+# Workouts
+# ---------------------------------------------------------------------------
+
+class SetLogEntry(BaseModel):
+    """A single set within an exercise log entry."""
+    set_number: int
+    reps: int
+    weight_kg: Optional[float] = None     # None for bodyweight exercises
+    is_bodyweight: bool = False
+
+
+class ExerciseLogEntry(BaseModel):
+    """All sets for one exercise within a workout log."""
+    exercise_id: int
+    sets: List[SetLogEntry]
+
+
+class WorkoutLogRequest(BaseModel):
+    """Body for POST /workouts/log."""
+    plan_id: Optional[int] = None         # None for ad-hoc workouts
+    exercises: List[ExerciseLogEntry]
+    notes: Optional[str] = None
+
+
+class ExerciseCreateRequest(BaseModel):
+    """Body for POST /workouts/exercises (create custom exercise)."""
+    name: str
+    muscle_group: str
+    equipment: str
+    difficulty: str = "intermediate"
+
+
+class WorkoutPlanRequest(BaseModel):
+    """Body for POST /workouts/plans/generate."""
+    goal: str                             # muscle_gain | fat_loss | endurance | strength | general_fitness
+    days_per_week: int
+    notes: Optional[str] = None
+
+
+class WorkoutXPResponse(BaseModel):
+    """Current workout XP and rank standing."""
+    total_xp: int
+    rank: str
+    rank_progress: float
+    xp_to_next_rank: Optional[int] = None
+    streak: int
