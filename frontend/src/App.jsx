@@ -1225,43 +1225,180 @@ const Onboarding = ({ onDone }) => {
   );
 };
 
+// --- PAYWALL ---
+const Paywall = ({ onDone }) => {
+  const [loading, setLoading] = useState(null); // "free" | "premium"
+
+  const FREE_FEATURES = [
+    { icon: "✏️", label: "Manual macro entry" },
+    { icon: "✅", label: "To-do list" },
+    { icon: "🔄", label: "Habit tracker" },
+    { icon: "🏋️", label: "Workout logger" },
+  ];
+
+  const PREMIUM_FEATURES = [
+    { icon: "📸", label: "Food photo scanning (AI)", highlight: true },
+    { icon: "🤖", label: "AI workout planner", highlight: true },
+    { icon: "🍽️", label: "Meal suggestions & recipes", highlight: true },
+    { icon: "🛒", label: "Shopping list", highlight: true },
+    { icon: "💰", label: "Price comparison — coming soon", highlight: false, dim: true },
+  ];
+
+  const handleChoice = async (isPremium) => {
+    setLoading(isPremium ? "premium" : "free");
+    try {
+      await api.updateProfile({ is_premium: isPremium });
+    } catch {
+      // Non-fatal — preference can be re-synced on next session
+    }
+    onDone(isPremium);
+  };
+
+  return (
+    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", padding: "0 20px 40px", animation: "popIn .4s cubic-bezier(0.22,1.2,.36,1) both", overflowY: "auto" }}>
+      {/* Header */}
+      <div style={{ paddingTop: 56, textAlign: "center", marginBottom: 28 }}>
+        <div style={{ animation: "sf 3s ease-in-out infinite", display: "inline-block", marginBottom: 16 }}>
+          <img src={LOGO_IMAGE} alt="LifeRanked" style={{ width: 72, height: 72, objectFit: "contain", filter: "drop-shadow(0 0 24px rgba(255,23,68,0.7))", mixBlendMode: "screen" }} />
+        </div>
+        <h1 style={{ fontSize: 28, fontWeight: 900, letterSpacing: "-.03em", marginBottom: 6 }}>Choose your plan</h1>
+        <p style={{ fontSize: 14, color: "var(--t2)", lineHeight: 1.5 }}>Start free and upgrade anytime.</p>
+      </div>
+
+      {/* Plan comparison */}
+      <div style={{ display: "flex", gap: 10, marginBottom: 24 }}>
+        {/* FREE card */}
+        <div style={{ flex: 1, background: "var(--card)", borderRadius: 20, border: "1px solid var(--bdr)", padding: "18px 14px", display: "flex", flexDirection: "column" }}>
+          <div style={{ marginBottom: 14 }}>
+            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".1em", color: "var(--t3)", fontFamily: "var(--fm)", textTransform: "uppercase" }}>Free</span>
+            <div style={{ fontSize: 24, fontWeight: 900, marginTop: 4, letterSpacing: "-.02em" }}>£0</div>
+            <div style={{ fontSize: 11, color: "var(--t3)", fontFamily: "var(--fm)" }}>forever</div>
+          </div>
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
+            {FREE_FEATURES.map(f => (
+              <div key={f.label} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                <span style={{ fontSize: 14, lineHeight: 1.4 }}>{f.icon}</span>
+                <span style={{ fontSize: 12, color: "var(--t2)", lineHeight: 1.4 }}>{f.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* PREMIUM card */}
+        <div style={{ flex: 1, background: "linear-gradient(145deg, #1A0A12, #130A16)", borderRadius: 20, border: "1.5px solid rgba(255,23,68,.35)", padding: "18px 14px", display: "flex", flexDirection: "column", position: "relative", boxShadow: "0 0 32px rgba(255,23,68,.12)" }}>
+          <div style={{ position: "absolute", top: -10, left: "50%", transform: "translateX(-50%)", background: "var(--acc)", color: "#fff", fontSize: 9, fontWeight: 800, letterSpacing: ".1em", padding: "4px 12px", borderRadius: 20, whiteSpace: "nowrap", fontFamily: "var(--fm)" }}>RECOMMENDED</div>
+          <div style={{ marginBottom: 14 }}>
+            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".1em", color: "var(--acc)", fontFamily: "var(--fm)", textTransform: "uppercase" }}>Premium</span>
+            <div style={{ fontSize: 24, fontWeight: 900, marginTop: 4, letterSpacing: "-.02em" }}>£7.99</div>
+            <div style={{ fontSize: 11, color: "var(--t3)", fontFamily: "var(--fm)" }}>per month</div>
+          </div>
+          {/* Everything in free */}
+          <div style={{ fontSize: 10, fontWeight: 700, color: "var(--t3)", letterSpacing: ".06em", textTransform: "uppercase", fontFamily: "var(--fm)", marginBottom: 8 }}>Everything in free, plus:</div>
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
+            {PREMIUM_FEATURES.map(f => (
+              <div key={f.label} style={{ display: "flex", alignItems: "flex-start", gap: 8, opacity: f.dim ? 0.45 : 1 }}>
+                <span style={{ fontSize: 14, lineHeight: 1.4 }}>{f.icon}</span>
+                <span style={{ fontSize: 12, color: f.highlight ? "var(--t1)" : "var(--t2)", lineHeight: 1.4, fontWeight: f.highlight ? 500 : 400 }}>{f.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* CTA buttons */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <button
+          onClick={() => !loading && handleChoice(true)}
+          disabled={!!loading}
+          style={{ width: "100%", padding: "17px 0", background: loading === "premium" ? "rgba(255,23,68,.6)" : "var(--acc)", color: "#fff", border: "none", borderRadius: 14, fontSize: 16, fontWeight: 800, cursor: loading ? "default" : "pointer", boxShadow: loading ? "none" : "0 0 32px var(--accG)", letterSpacing: "-.01em", transition: "all .2s", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
+        >
+          {loading === "premium" ? "Setting up…" : "Go Premium — £7.99/month"}
+        </button>
+        <button
+          onClick={() => !loading && handleChoice(false)}
+          disabled={!!loading}
+          style={{ width: "100%", padding: "15px 0", background: "transparent", color: "var(--t2)", border: "1px solid var(--bdr)", borderRadius: 14, fontSize: 14, fontWeight: 600, cursor: loading ? "default" : "pointer", transition: "all .2s", opacity: loading === "free" ? 0.5 : 1 }}
+        >
+          {loading === "free" ? "Setting up…" : "Start Free"}
+        </button>
+      </div>
+
+      <p style={{ fontSize: 11, color: "var(--t3)", textAlign: "center", marginTop: 16, lineHeight: 1.5 }}>
+        No credit card required for free plan.<br />Cancel premium anytime.
+      </p>
+    </div>
+  );
+};
+
+
 // --- MAIN ---
 export default function App() {
-  const [scr, setScr] = useState("auth");
+  // Flow: onboarding (incl. splash at step 0) → auth → paywall (new users) → home
+  const [scr, setScr] = useState("onboarding");
   const [user, setUser] = useState(null);
   const [sel, setSel] = useState(null);
+  // Onboarding answers held here until we have a token to send them to the backend
+  const [pendingProfile, setPendingProfile] = useState(null);
+
+  // Called when the user taps "Start Ranking" at the end of onboarding.
+  // We save the collected data and send them to the auth screen.
+  const handleOnboardingDone = (data) => {
+    setPendingProfile(data);
+    setScr("auth");
+  };
 
   // Called by AuthScreen after a successful login or signup.
-  // isNewUser = true  → show onboarding so they can set up their profile.
-  // isNewUser = false → build a minimal profile from auth data and go home.
-  const handleAuthSuccess = (authData, isNewUser) => {
+  // isNewUser = true  → persist onboarding data, show paywall.
+  // isNewUser = false → returning user, go straight home.
+  const handleAuthSuccess = async (authData, isNewUser) => {
+    if (isNewUser && pendingProfile) {
+      // Map onboarding state to backend field names
+      const activityMap = { 1.2: "low", 1.55: "moderate", 1.725: "high" };
+      const profilePayload = {
+        username:            pendingProfile.username    || undefined,
+        gender:              pendingProfile.gender      || undefined,
+        age:                 pendingProfile.age         ? Number(pendingProfile.age) : undefined,
+        height_cm:           pendingProfile.height_cm   || undefined,
+        weight_kg:           pendingProfile.weight_kg   || undefined,
+        activity_level:      activityMap[pendingProfile.activityFactor] || undefined,
+        fitness_goal:        pendingProfile.goal        || undefined,
+        dietary_preferences: pendingProfile.motivation?.length ? pendingProfile.motivation : undefined,
+        onboarding_completed: true,
+      };
+      try { await api.updateProfile(profilePayload); } catch { /* non-fatal */ }
+    }
+
+    // Build the local user object regardless of new/returning
+    const profile = pendingProfile || {};
+    setUser({
+      username: profile.username || authData.email?.split("@")[0] || "user",
+      email:    authData.email,
+      goal:     profile.goal     || "maintain",
+      calories: profile.calories || 2000,
+      protein:  profile.protein  || 150,
+      carbs:    profile.carbs    || 200,
+      fat:      profile.fat      || 65,
+    });
+
     if (isNewUser) {
-      setScr("onboarding");
+      setScr("paywall");
     } else {
-      setUser({
-        username: authData.email?.split("@")[0] ?? "user",
-        email:    authData.email,
-        goal:     "maintain",
-        calories: 2000,
-        protein:  150,
-        carbs:    200,
-        fat:      65,
-      });
       setScr("home");
     }
   };
 
   return (
     <div className="shell">
+      {scr === "onboarding" && <Onboarding onDone={handleOnboardingDone} />}
       {scr === "auth"       && <AuthScreen onSuccess={handleAuthSuccess} />}
-      {scr === "onboarding" && <Onboarding onDone={d => { setUser(d); setScr("home"); }} />}
+      {scr === "paywall"    && <Paywall onDone={() => setScr("home")} />}
       {scr === "home"       && user && <Home user={user} go={setScr} setSel={setSel} />}
       {scr === "mr"         && <MealResult meal={sel} go={setScr} />}
       {scr === "upload"     && <Upload go={setScr} user={user} setSel={setSel} />}
       {scr === "profile"    && user && <Profile user={user} />}
       {scr === "leaderboard"&& <Leaderboard />}
       {scr === "share"      && user && <Share user={user} />}
-      {scr !== "onboarding" && scr !== "auth" && <Nav active={scr} go={setScr} />}
+      {scr !== "onboarding" && scr !== "auth" && scr !== "paywall" && <Nav active={scr} go={setScr} />}
     </div>
   );
 }

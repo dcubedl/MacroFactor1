@@ -39,7 +39,7 @@ from models.schemas import (
     ShoppingListResponse,
     ShoppingListUpdateRequest,
 )
-from services.auth import get_current_user
+from services.auth import require_premium as get_current_user  # All meals routes are PREMIUM-ONLY
 from services.meal_suggestions import (
     generate_comparison,
     generate_improvement_tips,

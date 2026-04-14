@@ -102,6 +102,19 @@ export const api = {
     return request('/api/auth/me');
   },
 
+  /**
+   * Save onboarding answers and other profile fields.
+   * All fields are optional — only provided fields are written.
+   * Called right after signup to persist the user's onboarding data.
+   */
+  async updateProfile(data) {
+    return request('/api/auth/profile', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+  },
+
   // ---- Food scan -----------------------------------------------------------
 
   /**

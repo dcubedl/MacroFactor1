@@ -35,12 +35,36 @@ create extension if not exists "pgcrypto";   -- gen_random_uuid()
 --    id is a foreign key into Supabase's managed auth schema.
 -- ---------------------------------------------------------------------------
 create table if not exists public.users (
-    id          uuid primary key references auth.users (id) on delete cascade,
-    username    text unique,
-    email       text unique not null,
-    created_at  timestamptz not null default now(),
-    updated_at  timestamptz not null default now()
+    id                    uuid primary key references auth.users (id) on delete cascade,
+    username              text unique,
+    email                 text unique not null,
+    -- Onboarding profile fields
+    gender                text,
+    age                   integer check (age is null or (age >= 10 and age <= 120)),
+    height_cm             numeric(5, 1),
+    weight_kg             numeric(5, 1),
+    activity_level        text,              -- "low" | "moderate" | "high"
+    fitness_goal          text,              -- "bulk" | "cut" | "maintain"
+    dietary_preferences   text[]   default '{}',
+    -- Subscription / onboarding state
+    is_premium            boolean  not null default false,
+    onboarding_completed  boolean  not null default false,
+    created_at            timestamptz not null default now(),
+    updated_at            timestamptz not null default now()
 );
+
+-- Idempotent column additions (safe to re-run after initial deploy)
+do $$ begin
+    alter table public.users add column if not exists gender               text;
+    alter table public.users add column if not exists age                  integer;
+    alter table public.users add column if not exists height_cm            numeric(5,1);
+    alter table public.users add column if not exists weight_kg            numeric(5,1);
+    alter table public.users add column if not exists activity_level       text;
+    alter table public.users add column if not exists fitness_goal         text;
+    alter table public.users add column if not exists dietary_preferences  text[] default '{}';
+    alter table public.users add column if not exists is_premium           boolean not null default false;
+    alter table public.users add column if not exists onboarding_completed boolean not null default false;
+end $$;
 
 -- Keep updated_at current automatically
 create or replace function public.set_updated_at()

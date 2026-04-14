@@ -11,7 +11,7 @@ from models.schemas import (
     MacroTotals,
     XPStatus,
 )
-from services.auth import get_current_user
+from services.auth import get_current_user, require_premium
 from services.gemini import analyse_food_image
 from services.scoring import (
     apply_xp_change,
@@ -40,7 +40,7 @@ ALLOWED_MIME_PREFIXES = ("image/jpeg", "image/png", "image/webp", "image/heic", 
 @router.post("/food/scan", response_model=FoodScanResponse)
 async def scan_food(
     photo: UploadFile = File(...),
-    user_id: str = Depends(get_current_user),
+    user_id: str = Depends(require_premium),   # PREMIUM-ONLY
 ):
     """
     Accept a food photo and return a health score + rank.

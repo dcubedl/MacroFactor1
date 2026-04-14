@@ -22,7 +22,7 @@ from models.schemas import (
     WorkoutPlanRequest,
     WorkoutXPResponse,
 )
-from services.auth import get_current_user
+from services.auth import get_current_user, require_premium
 from services.workout_scoring import (
     calculate_workout_xp,
     calculate_workout_streak,
@@ -111,7 +111,7 @@ async def create_exercise(
 @router.post("/workouts/plans/generate", status_code=201)
 async def generate_plan(
     body: WorkoutPlanRequest,
-    user_id: str = Depends(get_current_user),
+    user_id: str = Depends(require_premium),   # PREMIUM-ONLY
 ):
     """
     Generate an AI workout plan via Gemini, then save and return it.

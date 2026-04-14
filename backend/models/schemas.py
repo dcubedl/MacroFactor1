@@ -31,7 +31,30 @@ class UserProfile(BaseModel):
     id: str
     email: str
     username: Optional[str] = None
+    gender: Optional[str] = None
+    age: Optional[int] = None
+    height_cm: Optional[float] = None
+    weight_kg: Optional[float] = None
+    activity_level: Optional[str] = None
+    fitness_goal: Optional[str] = None
+    dietary_preferences: List[str] = []
+    is_premium: bool = False
+    onboarding_completed: bool = False
     created_at: Optional[str] = None
+
+
+class ProfileUpdateRequest(BaseModel):
+    """Body for PUT /api/auth/profile — all fields optional."""
+    username: Optional[str] = None
+    gender: Optional[str] = None
+    age: Optional[int] = None
+    height_cm: Optional[float] = None
+    weight_kg: Optional[float] = None
+    activity_level: Optional[str] = None       # "low" | "moderate" | "high"
+    fitness_goal: Optional[str] = None         # "bulk" | "cut" | "maintain"
+    dietary_preferences: Optional[List[str]] = None
+    is_premium: Optional[bool] = None
+    onboarding_completed: Optional[bool] = None
 
 
 # ---------------------------------------------------------------------------

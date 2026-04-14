@@ -1,7 +1,7 @@
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
-from database.supabase import anon_client
+from database.supabase import anon_client, service_client
 
 # HTTPBearer extracts the token from "Authorization: Bearer <token>".
 # auto_error=False lets us return a clean 401 instead of FastAPI's default 403.
@@ -49,3 +49,34 @@ async def get_current_user(
         )
 
     return str(response.user.id)
+
+
+async def require_premium(user_id: str = Depends(get_current_user)) -> str:
+    """
+    FastAPI dependency — verifies the user has an active premium subscription.
+
+    Usage in a route:
+        @router.post("/premium-feature")
+        async def feature(user_id: str = Depends(require_premium)):
+            ...
+
+    Raises HTTP 403 if the user's `is_premium` flag is not True.
+    Returns the user_id (same as get_current_user) so it can be used directly.
+    """
+    result = (
+        service_client
+        .table("users")
+        .select("is_premium")
+        .eq("id", user_id)
+        .limit(1)
+        .execute()
+    )
+
+    row = result.data[0] if result.data else None
+    if not row or not row.get("is_premium", False):
+        raise HTTPException(
+            status_code=403,
+            detail="Premium subscription required.",
+        )
+
+    return user_id
