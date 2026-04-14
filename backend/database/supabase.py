@@ -463,3 +463,206 @@ async def upsert_workout_xp(user_id: str, new_total_xp: int, rank: str) -> dict:
         raise HTTPException(status_code=500, detail="XP upsert returned no data.")
 
     return result.data[0]
+
+
+# ---------------------------------------------------------------------------
+# habits
+# ---------------------------------------------------------------------------
+
+async def get_habits(user_id: str) -> list[dict]:
+    """Return all non-archived habits for the user, oldest first."""
+    try:
+        result = (
+            service_client
+            .table("habits")
+            .select("*")
+            .eq("user_id", user_id)
+            .eq("archived", False)
+            .order("created_at")
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch habits: {exc}")
+
+    return result.data or []
+
+
+async def create_habit(user_id: str, habit_data: dict) -> dict:
+    """Insert a new habit row."""
+    payload = {"user_id": user_id, **habit_data}
+    try:
+        result = service_client.table("habits").insert(payload).execute()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to create habit: {exc}")
+
+    if not result.data:
+        raise HTTPException(status_code=500, detail="Habit insert returned no data.")
+
+    return result.data[0]
+
+
+async def update_habit(user_id: str, habit_id: str, updates: dict) -> dict:
+    """
+    Update a habit's editable fields.
+
+    Returns the updated row, or raises 404 if the habit doesn't belong to
+    this user or doesn't exist.
+    """
+    try:
+        result = (
+            service_client
+            .table("habits")
+            .update(updates)
+            .eq("id", habit_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to update habit: {exc}")
+
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Habit not found.")
+
+    return result.data[0]
+
+
+async def archive_habit(user_id: str, habit_id: str) -> dict:
+    """Soft-delete a habit by setting archived = true."""
+    return await update_habit(user_id, habit_id, {"archived": True})
+
+
+# ---------------------------------------------------------------------------
+# habit_completions
+# ---------------------------------------------------------------------------
+
+async def get_completions_since(user_id: str, since_date: DateType) -> list[dict]:
+    """
+    Return all habit_completions for this user on or after since_date.
+
+    Used to hydrate streak calculations and stats in a single DB round-trip.
+    """
+    try:
+        result = (
+            service_client
+            .table("habit_completions")
+            .select("habit_id, completed_at, notes")
+            .eq("user_id", user_id)
+            .gte("completed_at", since_date.isoformat())
+            .order("completed_at", desc=True)
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch completions: {exc}")
+
+    return result.data or []
+
+
+async def mark_habit_complete(
+    user_id: str,
+    habit_id: str,
+    completed_at: DateType,
+    notes: Optional[str] = None,
+) -> dict:
+    """
+    Insert a completion row for (habit_id, completed_at).
+
+    Raises 409 if the habit is already completed on that date (unique
+    constraint violation).
+    """
+    payload = {
+        "habit_id":     habit_id,
+        "user_id":      user_id,
+        "completed_at": completed_at.isoformat(),
+    }
+    if notes:
+        payload["notes"] = notes
+
+    try:
+        result = service_client.table("habit_completions").insert(payload).execute()
+    except Exception as exc:
+        msg = str(exc)
+        if "unique" in msg.lower() or "duplicate" in msg.lower() or "23505" in msg:
+            raise HTTPException(
+                status_code=409,
+                detail="Habit already completed for this date.",
+            )
+        raise HTTPException(status_code=500, detail=f"Failed to mark habit complete: {exc}")
+
+    if not result.data:
+        raise HTTPException(status_code=500, detail="Completion insert returned no data.")
+
+    return result.data[0]
+
+
+async def unmark_habit_complete(
+    user_id: str,
+    habit_id: str,
+    completed_at: DateType,
+) -> None:
+    """
+    Delete the completion row for (habit_id, completed_at).
+
+    Raises 404 if no such row exists.
+    """
+    try:
+        result = (
+            service_client
+            .table("habit_completions")
+            .delete()
+            .eq("habit_id", habit_id)
+            .eq("user_id", user_id)
+            .eq("completed_at", completed_at.isoformat())
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to unmark habit: {exc}")
+
+    if not result.data:
+        raise HTTPException(
+            status_code=404,
+            detail="No completion found for this habit on that date.",
+        )
+
+
+# ---------------------------------------------------------------------------
+# habit_xp
+# ---------------------------------------------------------------------------
+
+async def get_habit_xp(user_id: str) -> Optional[dict]:
+    """Return the user's current habit XP row, or None."""
+    try:
+        result = (
+            service_client
+            .table("habit_xp")
+            .select("*")
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch habit XP: {exc}")
+
+    return result.data[0] if result.data else None
+
+
+async def upsert_habit_xp(user_id: str, new_total_xp: int, rank: str) -> dict:
+    """Upsert the habit_xp row for a user."""
+    payload = {
+        "user_id":  user_id,
+        "total_xp": new_total_xp,
+        "rank":     rank,
+    }
+    try:
+        result = (
+            service_client
+            .table("habit_xp")
+            .upsert(payload, on_conflict="user_id")
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to update habit XP: {exc}")
+
+    if not result.data:
+        raise HTTPException(status_code=500, detail="Habit XP upsert returned no data.")
+
+    return result.data[0]

@@ -430,6 +430,151 @@ create policy "workout_xp: update own"
 
 
 -- =============================================================================
+-- HABIT TRACKER FEATURE
+-- =============================================================================
+
+
+-- ---------------------------------------------------------------------------
+-- 10. habits
+--     One row per habit. Archived habits are hidden from the UI but kept for
+--     historical completion data. frequency is 'daily' or 'weekly'.
+--     target_per_week controls how many days per week a weekly habit targets.
+--     Daily habits always target 7; this column is most meaningful for weekly.
+-- ---------------------------------------------------------------------------
+create table if not exists public.habits (
+    id              uuid primary key default gen_random_uuid(),
+    user_id         uuid not null references public.users (id) on delete cascade,
+    name            text not null,
+    description     text,
+    frequency       text not null default 'daily'
+                        check (frequency in ('daily', 'weekly')),
+    target_per_week integer not null default 7
+                        check (target_per_week >= 1 and target_per_week <= 7),
+    archived        boolean not null default false,
+    created_at      timestamptz not null default now()
+);
+
+create index if not exists idx_habits_user_active
+    on public.habits (user_id)
+    where not archived;
+
+
+-- ---------------------------------------------------------------------------
+-- 11. habit_completions
+--     One row per (habit, calendar day). The unique constraint prevents
+--     double-completing the same habit on the same day.
+-- ---------------------------------------------------------------------------
+create table if not exists public.habit_completions (
+    id           uuid primary key default gen_random_uuid(),
+    habit_id     uuid not null references public.habits (id) on delete cascade,
+    user_id      uuid not null references public.users (id) on delete cascade,
+    completed_at date not null default current_date,
+    notes        text,
+    created_at   timestamptz not null default now(),
+
+    unique (habit_id, completed_at)
+);
+
+create index if not exists idx_habit_completions_user_date
+    on public.habit_completions (user_id, completed_at desc);
+
+create index if not exists idx_habit_completions_habit_date
+    on public.habit_completions (habit_id, completed_at desc);
+
+
+-- ---------------------------------------------------------------------------
+-- 12. habit_xp
+--     One row per user — upserted after every completion.
+-- ---------------------------------------------------------------------------
+create table if not exists public.habit_xp (
+    id         uuid primary key default gen_random_uuid(),
+    user_id    uuid not null references public.users (id) on delete cascade,
+    total_xp   integer not null default 0 check (total_xp >= 0),
+    rank       text not null default 'Bronze',
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+
+    unique (user_id)
+);
+
+drop trigger if exists trg_habit_xp_updated_at on public.habit_xp;
+create trigger trg_habit_xp_updated_at
+    before update on public.habit_xp
+    for each row execute function public.set_updated_at();
+
+
+-- =============================================================================
+-- RLS — habit tables
+-- =============================================================================
+
+alter table public.habits             enable row level security;
+alter table public.habit_completions  enable row level security;
+alter table public.habit_xp           enable row level security;
+
+
+-- --- habits ------------------------------------------------------------------
+
+drop policy if exists "habits: select own"  on public.habits;
+drop policy if exists "habits: insert own"  on public.habits;
+drop policy if exists "habits: update own"  on public.habits;
+drop policy if exists "habits: delete own"  on public.habits;
+
+create policy "habits: select own"
+    on public.habits for select
+    using (auth.uid() = user_id);
+
+create policy "habits: insert own"
+    on public.habits for insert
+    with check (auth.uid() = user_id);
+
+create policy "habits: update own"
+    on public.habits for update
+    using (auth.uid() = user_id);
+
+create policy "habits: delete own"
+    on public.habits for delete
+    using (auth.uid() = user_id);
+
+
+-- --- habit_completions -------------------------------------------------------
+
+drop policy if exists "habit_completions: select own"  on public.habit_completions;
+drop policy if exists "habit_completions: insert own"  on public.habit_completions;
+drop policy if exists "habit_completions: delete own"  on public.habit_completions;
+
+create policy "habit_completions: select own"
+    on public.habit_completions for select
+    using (auth.uid() = user_id);
+
+create policy "habit_completions: insert own"
+    on public.habit_completions for insert
+    with check (auth.uid() = user_id);
+
+create policy "habit_completions: delete own"
+    on public.habit_completions for delete
+    using (auth.uid() = user_id);
+
+
+-- --- habit_xp ----------------------------------------------------------------
+
+drop policy if exists "habit_xp: select own"  on public.habit_xp;
+drop policy if exists "habit_xp: insert own"  on public.habit_xp;
+drop policy if exists "habit_xp: update own"  on public.habit_xp;
+
+create policy "habit_xp: select own"
+    on public.habit_xp for select
+    using (auth.uid() = user_id);
+
+create policy "habit_xp: insert own"
+    on public.habit_xp for insert
+    with check (auth.uid() = user_id);
+
+create policy "habit_xp: update own"
+    on public.habit_xp for update
+    using (auth.uid() = user_id);
+
+
+-- =============================================================================
 -- Starter exercise library (47 exercises across all muscle groups)
 -- Guarded by DO block — safe to re-run.
 -- =============================================================================

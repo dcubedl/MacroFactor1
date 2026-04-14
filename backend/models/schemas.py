@@ -161,3 +161,56 @@ class WorkoutXPResponse(BaseModel):
     rank_progress: float
     xp_to_next_rank: Optional[int] = None
     streak: int
+
+
+# ---------------------------------------------------------------------------
+# Habits
+# ---------------------------------------------------------------------------
+
+class HabitCreateRequest(BaseModel):
+    name: str
+    description: Optional[str] = None
+    frequency: str = "daily"          # "daily" | "weekly"
+    target_per_week: int = 7
+
+
+class HabitUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    frequency: Optional[str] = None
+    target_per_week: Optional[int] = None
+
+
+class HabitCompleteRequest(BaseModel):
+    notes: Optional[str] = None
+
+
+class HabitResponse(BaseModel):
+    """A habit with live streak and today's completion status attached."""
+    id: str
+    name: str
+    description: Optional[str] = None
+    frequency: str
+    target_per_week: int
+    archived: bool
+    streak: int
+    completed_today: bool
+    created_at: str
+
+
+class HabitXPResponse(BaseModel):
+    """Current habit XP and rank standing."""
+    total_xp: int
+    rank: str
+    rank_progress: float
+    xp_to_next_rank: Optional[int] = None
+
+
+class HabitStatsResponse(BaseModel):
+    """Aggregate habit statistics for a user."""
+    total_habits: int
+    active_habits: int
+    completions_today: int
+    completion_rate_7d: float          # 0.0–1.0
+    longest_streak: int
+    xp_status: HabitXPResponse
