@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from models.schemas import FoodScanResponse
 from services.auth import get_current_user
 from services.gemini import analyse_food_image
-from services.scoring import compute_score, get_rank
+from services.scoring import calculate_xp_change, compute_score, get_rank
 from database.supabase import save_food_scan, update_daily_score
 
 router = APIRouter()
@@ -52,8 +52,9 @@ async def scan_food(
     # --- Gemini: food recognition + macro estimation ---
     gemini_result = await analyse_food_image(image_bytes, content_type)
 
-    # --- Scoring: score + rank + explanation ---
-    score, rank, explanation = compute_score(gemini_result)
+    # --- Scoring: meal score (0–100) + meal quality label + explanation ---
+    score, meal_rank, explanation = compute_score(gemini_result)
+    xp_change = calculate_xp_change(score)
 
     # --- Persist scan to Supabase ---
     scan_data = {
@@ -64,7 +65,7 @@ async def scan_food(
         "fat_g":      gemini_result["fat_g"],
         "fiber_g":    gemini_result["fiber_g"],
         "score":      score,
-        "rank":       rank,
+        "rank":       meal_rank,
         "health_tip": gemini_result["health_tip"],
     }
     await save_food_scan(user_id, scan_data)
@@ -72,25 +73,24 @@ async def scan_food(
     # --- Update daily aggregate (best-effort — don't fail the scan if it errors) ---
     try:
         today = date.today()
-        # get_rank is used here so the daily rank reflects the updated average,
-        # not just this scan's rank. update_daily_score recalculates the average
-        # internally and returns the new average; we derive the daily rank from it.
-        daily = await update_daily_score(user_id, today, score, rank)
+        daily = await update_daily_score(user_id, today, score, meal_rank)
         if daily:
             avg = daily.get("average_score", score)
-            _ = get_rank(int(avg))  # available for future use (e.g. daily rank in response)
+            _ = get_rank(int(avg))  # available for future daily rank response field
     except Exception:
-        # Daily score update is non-critical. The scan result is already saved.
         pass
 
+    # xp_status is populated here once the XP persistence layer is wired up.
+    # For now, xp_change is returned so the frontend can optimistically update.
     return FoodScanResponse(
         food_name=gemini_result["food_name"],
         score=score,
-        rank=rank,
+        meal_rank=meal_rank,
         explanation=explanation,
         calories=gemini_result["calories"],
         protein_g=gemini_result["protein_g"],
         carbs_g=gemini_result["carbs_g"],
         fat_g=gemini_result["fat_g"],
         fiber_g=gemini_result["fiber_g"],
+        xp_change=xp_change,
     )
