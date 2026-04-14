@@ -9,21 +9,29 @@ class FoodScanResponse(BaseModel):
     Fields
     ------
     food_name   : Human-readable name identified by Gemini.
-    score       : Integer 0-100 representing the food's healthiness.
+    score       : Integer 0–100 representing the food's healthiness.
     rank        : Tier name matching the frontend RANKS list
                   (Bronze / Silver / Gold / Platinum / Diamond / Crimson).
-    explanation : Short justification of the score for display in the UI.
-    macros      : Optional macro breakdown if Gemini can extract it.
+    explanation : Gemini's one-sentence health tip for this food.
+    calories    : Estimated kcal per serving (may be None if undetectable).
+    protein_g   : Estimated protein in grams.
+    carbs_g     : Estimated total carbohydrates in grams.
+    fat_g       : Estimated total fat in grams.
+    fiber_g     : Estimated dietary fibre in grams.
     """
 
     food_name: str
     score: int
     rank: str
     explanation: str
-    macros: Optional[dict] = None  # e.g. {"calories": 320, "protein": 12, ...}
+    calories: Optional[float] = None
+    protein_g: Optional[float] = None
+    carbs_g: Optional[float] = None
+    fat_g: Optional[float] = None
+    fiber_g: Optional[float] = None
 
 
 class FoodScanError(BaseModel):
-    """Returned when scanning fails (bad image, Gemini error, etc.)."""
+    """Returned when scanning fails (bad image, API failure, etc.)."""
 
     detail: str
