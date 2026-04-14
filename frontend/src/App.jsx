@@ -2,9 +2,11 @@ import { useState, useRef, useEffect } from "react";
 import { getRank, LOGO_IMAGE } from "./data/ranks";
 import SplashScreen from "./components/SplashScreen";
 import OnboardingGraph from "./components/OnboardingGraph";
-import { MOCK_MEALS, MOCK_LEADERBOARD, UPLOAD_DETECT_FOODS } from "./data/mockData";
+import { MOCK_MEALS, MOCK_LEADERBOARD } from "./data/mockData";
 import RankBadge from "./components/RankBadge";
 import AppIcon from "./components/AppIcon";
+import AuthScreen from "./components/AuthScreen";
+import { api } from "./services/api";
 import navHome from './assets/nav/home.png';
 import navRanks from './assets/nav/ranked.png';
 import navProfile from './assets/nav/profile.png';
@@ -249,7 +251,7 @@ const FOOD_DB = [
   { name: "Blueberries", cal: 57, protein: 0.7, carbs: 14, fat: 0.3 },
 ];
 
-const Upload = ({ go, user }) => {
+const Upload = ({ go, user, setSel }) => {
   const [phase, setPhase] = useState("idle");
   const [progress, setProgress] = useState(0);
   const [statusIdx, setStatusIdx] = useState(0);
@@ -258,18 +260,46 @@ const Upload = ({ go, user }) => {
   const [searchFocused, setSearchFocused] = useState(false);
   const [selectedFoods, setSelectedFoods] = useState([]);
   const [manualResult, setManualResult] = useState(null);
+  const [scanResult, setScanResult] = useState(null);
+  const [scanError, setScanError] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
+  const fileRef = useRef(null);
+  const cameraRef = useRef(null);
 
-  const startScan = () => {
+  const startScan = async (file) => {
     setPhase("scanning");
     setProgress(0);
     setStatusIdx(0);
+    setScanResult(null);
+    setScanError(null);
+    if (file) setImagePreview(URL.createObjectURL(file));
+
+    // Progress animation runs independently; API call races alongside it.
     let p = 0;
     const iv = setInterval(() => {
       p += 1;
       setProgress(p);
       setStatusIdx(Math.min(3, Math.floor(p / 25)));
-      if (p >= 100) { clearInterval(iv); setTimeout(() => setPhase("results"), 400); }
+      if (p >= 100) clearInterval(iv);
     }, 35);
+
+    if (!file) { setTimeout(() => setPhase("results"), 4000); return; }
+
+    try {
+      const result = await api.scanFood(file);
+      setScanResult(result);
+    } catch (err) {
+      setScanError(
+        err.status === 0   ? "Cannot reach the server. Make sure the backend is running." :
+        err.status === 429 ? "Gemini is rate limited — please wait a moment and try again." :
+        err.status === 401 ? "Session expired. Please log back in." :
+        err.message        || "Could not analyse the image. Please try again."
+      );
+    } finally {
+      clearInterval(iv);
+      setProgress(100);
+      setTimeout(() => setPhase("results"), 600);
+    }
   };
 
   const fMacros = (food, grams) => ({
@@ -310,13 +340,7 @@ const Upload = ({ go, user }) => {
 
   const matches = search.length > 1 ? FOOD_DB.filter(f => f.name.toLowerCase().includes(search.toLowerCase())) : [];
 
-  const foods = UPLOAD_DETECT_FOODS;
-  const totCal = foods.reduce((s, f) => s + f.cal, 0);
-  const totPro = Math.round(foods.reduce((s, f) => s + f.protein, 0));
-  const totCarb = Math.round(foods.reduce((s, f) => s + f.carbs, 0));
-  const totFat = Math.round(foods.reduce((s, f) => s + f.fat, 0));
-  const score = 85;
-  const r = getRank(score);
+  // scan result variables populated after a real API call (results phase only)
 
   const QUICK_ADD = ["Chicken Breast", "Rice (cooked)", "Eggs", "Oats", "Banana", "Whey Protein", "Avocado", "Sweet Potato"]
     .map(name => FOOD_DB.find(f => f.name === name)).filter(Boolean);
@@ -473,13 +497,18 @@ const Upload = ({ go, user }) => {
 
       {/* Compact photo upload */}
       <div style={{ background: "var(--card)", borderRadius: 16, border: "1px solid var(--bdr)", padding: "12px 14px", display: "flex", alignItems: "center", gap: 12 }}>
+        <input ref={cameraRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }}
+          onChange={e => { const f = e.target.files?.[0]; e.target.value = ""; if (f) startScan(f); }} />
+        <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }}
+          onChange={e => { const f = e.target.files?.[0]; e.target.value = ""; if (f) startScan(f); }} />
         <span style={{ fontSize: 22 }}>📷</span>
         <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: "var(--t2)" }}>Snap a photo</span>
-        {[{ e: "📷", l: "Camera" }, { e: "🖼️", l: "Gallery" }].map(b => (
-          <button key={b.l} onClick={startScan} style={{ padding: "8px 14px", background: "var(--elev)", border: "1px solid var(--bdr)", borderRadius: 10, color: "var(--t1)", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ fontSize: 14 }}>{b.e}</span>{b.l}
-          </button>
-        ))}
+        <button onClick={() => cameraRef.current?.click()} style={{ padding: "8px 14px", background: "var(--elev)", border: "1px solid var(--bdr)", borderRadius: 10, color: "var(--t1)", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ fontSize: 14 }}>📷</span>Camera
+        </button>
+        <button onClick={() => fileRef.current?.click()} style={{ padding: "8px 14px", background: "var(--elev)", border: "1px solid var(--bdr)", borderRadius: 10, color: "var(--t1)", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ fontSize: 14 }}>🖼️</span>Gallery
+        </button>
       </div>
     </div>
   );
@@ -488,7 +517,10 @@ const Upload = ({ go, user }) => {
     <div style={{ minHeight: "100vh", padding: "60px 16px 100px", display: "flex", flexDirection: "column", alignItems: "center", animation: "popIn .4s cubic-bezier(0.22,1.2,.36,1) both" }}>
       <h2 style={{ fontSize: 22, fontWeight: 800, marginBottom: 24 }}>Analysing Meal</h2>
       <div style={{ width: "100%", maxWidth: 340, aspectRatio: "1/1", borderRadius: 20, background: "var(--card)", border: "1px solid var(--bdr)", position: "relative", overflow: "hidden", marginBottom: 28, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <span style={{ fontSize: 90 }}>🍗</span>
+        {imagePreview
+          ? <img src={imagePreview} alt="food" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: 20 }} />
+          : <span style={{ fontSize: 90 }}>🍗</span>
+        }
         <div style={{ position: "absolute", left: 0, right: 0, height: 3, background: "linear-gradient(90deg, transparent, var(--acc), transparent)", animation: "sl 1.5s linear infinite", boxShadow: "0 0 14px var(--acc)" }} />
         <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(255,23,68,.04) 0%, transparent 100%)" }} />
       </div>
@@ -505,42 +537,69 @@ const Upload = ({ go, user }) => {
     </div>
   );
 
+  // ---- Results phase -------------------------------------------------------
+  if (scanError) return (
+    <div style={{ minHeight: "100vh", padding: "60px 16px 100px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", animation: "popIn .4s cubic-bezier(0.22,1.2,.36,1) both" }}>
+      <div style={{ fontSize: 52, marginBottom: 16 }}>⚠️</div>
+      <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 10, textAlign: "center" }}>Scan Failed</h2>
+      <p style={{ fontSize: 14, color: "var(--t3)", textAlign: "center", lineHeight: 1.6, marginBottom: 32, maxWidth: 300 }}>{scanError}</p>
+      <button onClick={() => { setPhase("idle"); setScanError(null); setImagePreview(null); }}
+        style={{ padding: "14px 32px", background: "var(--acc)", color: "#fff", border: "none", borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: "pointer", boxShadow: "0 0 24px var(--accG)" }}>
+        Try Again
+      </button>
+    </div>
+  );
+
+  const rScore = scanResult?.score ?? 0;
+  const rRank  = getRank(rScore);
+  const totCal  = Math.round(scanResult?.calories  ?? 0);
+  const totPro  = Math.round(scanResult?.protein_g ?? 0);
+  const totCarb = Math.round(scanResult?.carbs_g   ?? 0);
+  const totFat  = Math.round(scanResult?.fat_g     ?? 0);
+  const xpChange = scanResult?.xp_change ?? 0;
+
   return (
     <div style={{ padding: "60px 16px 100px", minHeight: "100vh", animation: "popIn .4s cubic-bezier(0.22,1.2,.36,1) both" }}>
+      {/* Score + XP */}
       <div style={{ textAlign: "center", marginBottom: 24, animation: "rr .6s cubic-bezier(.34,1.56,.64,1) forwards" }}>
         <p style={{ fontSize: 10, fontWeight: 700, color: "var(--t3)", letterSpacing: ".12em", textTransform: "uppercase", fontFamily: "var(--fm)", marginBottom: 12 }}>Meal Ranked</p>
-        <RankBadge rank={score} size="xl" animated />
+        <RankBadge rank={rScore} size="xl" animated />
         <div style={{ marginTop: 12 }}>
-          <span style={{ fontSize: 52, fontWeight: 900, color: r.color, fontFamily: "var(--fm)" }}>{score}</span>
+          <span style={{ fontSize: 52, fontWeight: 900, color: rRank.color, fontFamily: "var(--fm)" }}>{rScore}</span>
           <span style={{ fontSize: 16, color: "var(--t3)", fontFamily: "var(--fm)" }}>/100</span>
         </div>
+        {scanResult && (
+          <div style={{ marginTop: 10, display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 16px", borderRadius: 20, background: xpChange >= 0 ? "rgba(0,229,255,.07)" : "rgba(255,23,68,.07)", border: `1px solid ${xpChange >= 0 ? "rgba(0,229,255,.2)" : "rgba(255,23,68,.2)"}` }}>
+            <span style={{ fontSize: 13, fontWeight: 800, color: xpChange >= 0 ? "#00E5FF" : "var(--acc)", fontFamily: "var(--fm)" }}>
+              {xpChange >= 0 ? "+" : ""}{xpChange} XP
+            </span>
+          </div>
+        )}
       </div>
+
+      {/* Identified food + thumbnail */}
       <Card style={{ marginBottom: 12 }}>
-        <p style={{ fontSize: 10, fontWeight: 700, color: "var(--t3)", letterSpacing: ".1em", textTransform: "uppercase", fontFamily: "var(--fm)", marginBottom: 12 }}>Detected Foods</p>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {foods.map((f, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, animation: `popIn .4s ${0.05 + i * 0.05}s cubic-bezier(0.22,1.2,.36,1) both` }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <span style={{ fontSize: 13, fontWeight: 600 }}>{f.name}</span>
-                  <span style={{ fontSize: 11, color: "var(--t3)", fontFamily: "var(--fm)" }}>{f.amount}</span>
-                </div>
-                <div style={{ width: "100%", height: 4, borderRadius: 4, background: "rgba(255,255,255,.05)", overflow: "hidden" }}>
-                  <div style={{ height: "100%", width: `${f.confidence}%`, borderRadius: 4, background: f.confidence >= 93 ? "#00E5FF" : f.confidence >= 88 ? "#FFD700" : "var(--acc)" }} />
-                </div>
-              </div>
-              <span style={{ fontSize: 10, fontWeight: 700, color: f.confidence >= 93 ? "#00E5FF" : "var(--t2)", fontFamily: "var(--fm)", width: 34, textAlign: "right" }}>{f.confidence}%</span>
-            </div>
-          ))}
+        <p style={{ fontSize: 10, fontWeight: 700, color: "var(--t3)", letterSpacing: ".1em", textTransform: "uppercase", fontFamily: "var(--fm)", marginBottom: 10 }}>Identified Food</p>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          {imagePreview
+            ? <img src={imagePreview} alt="food" style={{ width: 60, height: 60, borderRadius: 12, objectFit: "cover", flexShrink: 0 }} />
+            : <div style={{ width: 60, height: 60, borderRadius: 12, background: "var(--elev)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, flexShrink: 0 }}>🍽️</div>
+          }
+          <div>
+            <p style={{ fontSize: 15, fontWeight: 700 }}>{scanResult?.food_name ?? "Unknown food"}</p>
+            <p style={{ fontSize: 11, color: rRank.color, fontFamily: "var(--fm)", fontWeight: 600, marginTop: 3 }}>{scanResult?.meal_rank ?? ""}</p>
+          </div>
         </div>
       </Card>
+
+      {/* Macros */}
       <Card style={{ marginBottom: 12 }}>
         <p style={{ fontSize: 10, fontWeight: 700, color: "var(--t3)", letterSpacing: ".1em", textTransform: "uppercase", fontFamily: "var(--fm)", marginBottom: 12 }}>Macros</p>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
           {[
-            { l: "CAL", v: totCal, unit: "", color: "var(--acc)" },
+            { l: "CAL", v: totCal, unit: "",  color: "var(--acc)" },
             { l: "PRO", v: totPro, unit: "g", color: "#00E5FF" },
-            { l: "CARB", v: totCarb, unit: "g", color: "#FFD700" },
+            { l: "CARB",v: totCarb,unit: "g", color: "#FFD700" },
             { l: "FAT", v: totFat, unit: "g", color: "#B388FF" },
           ].map(m => (
             <div key={m.l} style={{ textAlign: "center", background: "rgba(255,255,255,.03)", borderRadius: 10, padding: "10px 4px" }}>
@@ -550,21 +609,39 @@ const Upload = ({ go, user }) => {
           ))}
         </div>
       </Card>
-      <Card style={{ marginBottom: 16, border: `1px solid ${r.color}20`, background: `linear-gradient(135deg, var(--card), ${r.color}08)` }}>
+
+      {/* FoodScience — Gemini's health tip */}
+      <Card style={{ marginBottom: 16, border: `1px solid ${rRank.color}20`, background: `linear-gradient(135deg, var(--card), ${rRank.color}08)` }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
           <span style={{ fontSize: 16 }}>🔬</span>
-          <p style={{ fontSize: 11, fontWeight: 700, color: r.color, letterSpacing: ".08em", textTransform: "uppercase", fontFamily: "var(--fm)" }}>FoodScience</p>
+          <p style={{ fontSize: 11, fontWeight: 700, color: rRank.color, letterSpacing: ".08em", textTransform: "uppercase", fontFamily: "var(--fm)" }}>FoodScience</p>
         </div>
-        <p style={{ fontSize: 13, lineHeight: 1.6, color: "var(--t2)", marginBottom: 10 }}>High-protein, balanced macro split with quality micronutrients. Your protein-to-calorie ratio is excellent at 9.5g/100kcal.</p>
-        <p style={{ fontSize: 11, fontWeight: 700, color: "var(--t3)", letterSpacing: ".08em", textTransform: "uppercase", fontFamily: "var(--fm)", marginBottom: 8 }}>Tips to improve</p>
-        {["Add leafy greens for micronutrients", "Reduce olive oil to lower caloric density", "Consider complex carbs over jasmine rice"].map((tip, i) => (
-          <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 6 }}>
-            <span style={{ color: "var(--acc)", fontSize: 12, marginTop: 1 }}>→</span>
-            <span style={{ fontSize: 12, color: "var(--t2)", lineHeight: 1.5 }}>{tip}</span>
-          </div>
-        ))}
+        <p style={{ fontSize: 13, lineHeight: 1.6, color: "var(--t2)" }}>
+          {scanResult?.explanation || "Nutritional analysis complete."}
+        </p>
       </Card>
-      <button onClick={() => go("home")} style={{ width: "100%", padding: "14px 0", background: "var(--acc)", color: "#fff", border: "none", borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: "pointer", boxShadow: "0 0 24px var(--accG)" }}>Save Meal</button>
+
+      <button
+        onClick={() => {
+          if (scanResult) {
+            const mealObj = {
+              id: Date.now(),
+              name: scanResult.food_name,
+              foods: [scanResult.food_name],
+              photo: "📷",
+              cal: totCal, protein: totPro, carbs: totCarb, fat: totFat,
+              score: rScore,
+              time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            };
+            setSel(mealObj);
+            go("mr");
+          } else {
+            go("home");
+          }
+        }}
+        style={{ width: "100%", padding: "14px 0", background: "var(--acc)", color: "#fff", border: "none", borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: "pointer", boxShadow: "0 0 24px var(--accG)" }}>
+        Save Meal
+      </button>
     </div>
   );
 };
@@ -1150,20 +1227,41 @@ const Onboarding = ({ onDone }) => {
 
 // --- MAIN ---
 export default function App() {
-  const [scr, setScr] = useState("onboarding");
+  const [scr, setScr] = useState("auth");
   const [user, setUser] = useState(null);
   const [sel, setSel] = useState(null);
 
+  // Called by AuthScreen after a successful login or signup.
+  // isNewUser = true  → show onboarding so they can set up their profile.
+  // isNewUser = false → build a minimal profile from auth data and go home.
+  const handleAuthSuccess = (authData, isNewUser) => {
+    if (isNewUser) {
+      setScr("onboarding");
+    } else {
+      setUser({
+        username: authData.email?.split("@")[0] ?? "user",
+        email:    authData.email,
+        goal:     "maintain",
+        calories: 2000,
+        protein:  150,
+        carbs:    200,
+        fat:      65,
+      });
+      setScr("home");
+    }
+  };
+
   return (
     <div className="shell">
+      {scr === "auth"       && <AuthScreen onSuccess={handleAuthSuccess} />}
       {scr === "onboarding" && <Onboarding onDone={d => { setUser(d); setScr("home"); }} />}
-      {scr === "home" && user && <Home user={user} go={setScr} setSel={setSel} />}
-      {scr === "mr" && <MealResult meal={sel} go={setScr} />}
-      {scr === "upload" && <Upload go={setScr} user={user} />}
-      {scr === "profile" && user && <Profile user={user} />}
-      {scr === "leaderboard" && <Leaderboard />}
-      {scr === "share" && user && <Share user={user} />}
-      {scr !== "onboarding" && <Nav active={scr} go={setScr} />}
+      {scr === "home"       && user && <Home user={user} go={setScr} setSel={setSel} />}
+      {scr === "mr"         && <MealResult meal={sel} go={setScr} />}
+      {scr === "upload"     && <Upload go={setScr} user={user} setSel={setSel} />}
+      {scr === "profile"    && user && <Profile user={user} />}
+      {scr === "leaderboard"&& <Leaderboard />}
+      {scr === "share"      && user && <Share user={user} />}
+      {scr !== "onboarding" && scr !== "auth" && <Nav active={scr} go={setScr} />}
     </div>
   );
 }
