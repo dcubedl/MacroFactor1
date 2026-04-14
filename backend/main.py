@@ -11,6 +11,7 @@ from routes.auth import router as auth_router
 from routes.food import router as food_router
 from routes.workouts import router as workouts_router
 from routes.habits import router as habits_router
+from routes.todos import router as todos_router
 
 app = FastAPI(title="MacroFactor API", version="0.1.0")
 
@@ -31,6 +32,7 @@ app.include_router(auth_router, prefix="/api")
 app.include_router(food_router, prefix="/api")
 app.include_router(workouts_router, prefix="/api")
 app.include_router(habits_router, prefix="/api")
+app.include_router(todos_router, prefix="/api")
 
 
 @app.get("/health")

@@ -666,3 +666,168 @@ async def upsert_habit_xp(user_id: str, new_total_xp: int, rank: str) -> dict:
         raise HTTPException(status_code=500, detail="Habit XP upsert returned no data.")
 
     return result.data[0]
+
+
+# ---------------------------------------------------------------------------
+# todos
+# ---------------------------------------------------------------------------
+
+async def get_todos(
+    user_id: str,
+    *,
+    completed: Optional[bool] = None,
+    priority: Optional[str] = None,
+) -> list[dict]:
+    """
+    Return todos for the user, newest first.
+
+    Parameters
+    ----------
+    completed : Filter by completion status. None = return all.
+    priority  : Filter by priority level. None = return all.
+    """
+    query = (
+        service_client
+        .table("todos")
+        .select("*")
+        .eq("user_id", user_id)
+        .order("created_at", desc=True)
+    )
+    if completed is not None:
+        query = query.eq("completed", completed)
+    if priority is not None:
+        query = query.eq("priority", priority)
+
+    try:
+        result = query.execute()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch todos: {exc}")
+
+    return result.data or []
+
+
+async def create_todo(user_id: str, todo_data: dict) -> dict:
+    """Insert a new todo row."""
+    payload = {"user_id": user_id, **todo_data}
+    try:
+        result = service_client.table("todos").insert(payload).execute()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to create todo: {exc}")
+
+    if not result.data:
+        raise HTTPException(status_code=500, detail="Todo insert returned no data.")
+
+    return result.data[0]
+
+
+async def update_todo(user_id: str, todo_id: str, updates: dict) -> dict:
+    """
+    Update editable fields on a todo.
+
+    Raises 404 if the todo doesn't belong to this user.
+    """
+    try:
+        result = (
+            service_client
+            .table("todos")
+            .update(updates)
+            .eq("id", todo_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to update todo: {exc}")
+
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Todo not found.")
+
+    return result.data[0]
+
+
+async def delete_todo(user_id: str, todo_id: str) -> None:
+    """Permanently delete a todo. Raises 404 if not found."""
+    try:
+        result = (
+            service_client
+            .table("todos")
+            .delete()
+            .eq("id", todo_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to delete todo: {exc}")
+
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Todo not found.")
+
+
+async def count_todos_completed_today(user_id: str, today: DateType) -> int:
+    """
+    Return the number of todos completed by this user on today's date.
+
+    Used to determine whether the productivity bonus should fire.
+    Filters on the completed_at timestamp column, selecting rows whose
+    date portion equals today.
+    """
+    from datetime import timedelta
+    tomorrow = (today + timedelta(days=1)).isoformat()
+
+    try:
+        result = (
+            service_client
+            .table("todos")
+            .select("completed_at")
+            .eq("user_id", user_id)
+            .eq("completed", True)
+            .gte("completed_at", today.isoformat())
+            .lt("completed_at", tomorrow)
+            .execute()
+        )
+        return len(result.data or [])
+    except Exception:
+        return 0
+
+
+# ---------------------------------------------------------------------------
+# todo_xp
+# ---------------------------------------------------------------------------
+
+async def get_todo_xp(user_id: str) -> Optional[dict]:
+    """Return the user's current todo XP row, or None."""
+    try:
+        result = (
+            service_client
+            .table("todo_xp")
+            .select("*")
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch todo XP: {exc}")
+
+    return result.data[0] if result.data else None
+
+
+async def upsert_todo_xp(user_id: str, new_total_xp: int, rank: str) -> dict:
+    """Upsert the todo_xp row for a user."""
+    payload = {
+        "user_id":  user_id,
+        "total_xp": new_total_xp,
+        "rank":     rank,
+    }
+    try:
+        result = (
+            service_client
+            .table("todo_xp")
+            .upsert(payload, on_conflict="user_id")
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to update todo XP: {exc}")
+
+    if not result.data:
+        raise HTTPException(status_code=500, detail="Todo XP upsert returned no data.")
+
+    return result.data[0]

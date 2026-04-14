@@ -214,3 +214,29 @@ class HabitStatsResponse(BaseModel):
     completion_rate_7d: float          # 0.0–1.0
     longest_streak: int
     xp_status: HabitXPResponse
+
+
+# ---------------------------------------------------------------------------
+# Todos
+# ---------------------------------------------------------------------------
+
+class TodoCreateRequest(BaseModel):
+    title: str
+    description: Optional[str] = None
+    priority: str = "medium"           # low | medium | high | urgent
+    due_date: Optional[str] = None     # ISO date string "YYYY-MM-DD"
+
+
+class TodoUpdateRequest(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    priority: Optional[str] = None
+    due_date: Optional[str] = None     # pass "" or null to clear
+
+
+class TodoXPResponse(BaseModel):
+    """Current todo XP and rank standing."""
+    total_xp: int
+    rank: str
+    rank_progress: float
+    xp_to_next_rank: Optional[int] = None

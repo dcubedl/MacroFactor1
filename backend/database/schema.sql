@@ -575,6 +575,116 @@ create policy "habit_xp: update own"
 
 
 -- =============================================================================
+-- TO-DO LIST FEATURE
+-- =============================================================================
+
+
+-- ---------------------------------------------------------------------------
+-- 13. todos
+--     One row per task. completed_at is set by the backend when the todo is
+--     marked done; cleared when it is un-completed.
+-- ---------------------------------------------------------------------------
+create table if not exists public.todos (
+    id           uuid primary key default gen_random_uuid(),
+    user_id      uuid not null references public.users (id) on delete cascade,
+    title        text not null,
+    description  text,
+    priority     text not null default 'medium'
+                     check (priority in ('low', 'medium', 'high', 'urgent')),
+    due_date     date,
+    completed    boolean not null default false,
+    completed_at timestamptz,
+    created_at   timestamptz not null default now(),
+    updated_at   timestamptz not null default now()
+);
+
+drop trigger if exists trg_todos_updated_at on public.todos;
+create trigger trg_todos_updated_at
+    before update on public.todos
+    for each row execute function public.set_updated_at();
+
+create index if not exists idx_todos_user_completed
+    on public.todos (user_id, completed);
+
+create index if not exists idx_todos_user_due
+    on public.todos (user_id, due_date)
+    where not completed;
+
+
+-- ---------------------------------------------------------------------------
+-- 14. todo_xp
+--     One row per user — upserted after every completion.
+--     Rank only ever increases (no deranking for todos).
+-- ---------------------------------------------------------------------------
+create table if not exists public.todo_xp (
+    id         uuid primary key default gen_random_uuid(),
+    user_id    uuid not null references public.users (id) on delete cascade,
+    total_xp   integer not null default 0 check (total_xp >= 0),
+    rank       text not null default 'Bronze',
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+
+    unique (user_id)
+);
+
+drop trigger if exists trg_todo_xp_updated_at on public.todo_xp;
+create trigger trg_todo_xp_updated_at
+    before update on public.todo_xp
+    for each row execute function public.set_updated_at();
+
+
+-- =============================================================================
+-- RLS — todo tables
+-- =============================================================================
+
+alter table public.todos    enable row level security;
+alter table public.todo_xp  enable row level security;
+
+
+-- --- todos -------------------------------------------------------------------
+
+drop policy if exists "todos: select own"  on public.todos;
+drop policy if exists "todos: insert own"  on public.todos;
+drop policy if exists "todos: update own"  on public.todos;
+drop policy if exists "todos: delete own"  on public.todos;
+
+create policy "todos: select own"
+    on public.todos for select
+    using (auth.uid() = user_id);
+
+create policy "todos: insert own"
+    on public.todos for insert
+    with check (auth.uid() = user_id);
+
+create policy "todos: update own"
+    on public.todos for update
+    using (auth.uid() = user_id);
+
+create policy "todos: delete own"
+    on public.todos for delete
+    using (auth.uid() = user_id);
+
+
+-- --- todo_xp -----------------------------------------------------------------
+
+drop policy if exists "todo_xp: select own"  on public.todo_xp;
+drop policy if exists "todo_xp: insert own"  on public.todo_xp;
+drop policy if exists "todo_xp: update own"  on public.todo_xp;
+
+create policy "todo_xp: select own"
+    on public.todo_xp for select
+    using (auth.uid() = user_id);
+
+create policy "todo_xp: insert own"
+    on public.todo_xp for insert
+    with check (auth.uid() = user_id);
+
+create policy "todo_xp: update own"
+    on public.todo_xp for update
+    using (auth.uid() = user_id);
+
+
+-- =============================================================================
 -- Starter exercise library (47 exercises across all muscle groups)
 -- Guarded by DO block — safe to re-run.
 -- =============================================================================
