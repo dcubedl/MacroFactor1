@@ -92,7 +92,8 @@ async def scan_food(
         "rank":       meal_rank,
         "health_tip": gemini_result["health_tip"],
     }
-    await save_food_scan(user_id, scan_data)
+    saved_scan = await save_food_scan(user_id, scan_data)
+    scan_id = saved_scan.get("id") if saved_scan else None
 
     # --- Update daily aggregate (best-effort — don't fail the scan if it errors) ---
     try:
@@ -122,6 +123,7 @@ async def scan_food(
         pass  # non-fatal — frontend can update optimistically from xp_change
 
     return FoodScanResponse(
+        scan_id=scan_id,
         food_name=gemini_result["food_name"],
         score=score,
         meal_rank=meal_rank,

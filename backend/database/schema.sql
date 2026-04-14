@@ -760,6 +760,171 @@ create policy "todo_xp: update own"
 
 
 -- =============================================================================
+-- MEAL IMPROVEMENT & RECIPE SUGGESTION FEATURE
+-- NOTE: Routes marked as premium-only — paywall check to be added when
+--       Stripe is integrated.
+-- =============================================================================
+
+
+-- ---------------------------------------------------------------------------
+-- 16. recipes
+--     Curated and AI-generated recipes. is_curated=true rows are hand-vetted
+--     and seeded via database/seed_recipes.py.
+-- ---------------------------------------------------------------------------
+create table if not exists public.recipes (
+    id                uuid primary key default gen_random_uuid(),
+    name              text not null,
+    cuisine           text not null check (cuisine in
+                          ('indian','arab','japanese','italian',
+                           'mexican','chinese','british','korean')),
+    description       text,
+    calories          numeric(7, 2),
+    protein_g         numeric(6, 2),
+    carbs_g           numeric(6, 2),
+    fat_g             numeric(6, 2),
+    fiber_g           numeric(6, 2),
+    prep_time_minutes integer,
+    servings          integer not null default 1 check (servings >= 1),
+    image_url         text,
+    is_curated        boolean not null default false,
+    created_at        timestamptz not null default now()
+);
+
+create index if not exists idx_recipes_cuisine
+    on public.recipes (cuisine)
+    where is_curated;
+
+
+-- ---------------------------------------------------------------------------
+-- 17. recipe_ingredients
+--     Normalised ingredient list for each recipe.
+-- ---------------------------------------------------------------------------
+create table if not exists public.recipe_ingredients (
+    id              uuid primary key default gen_random_uuid(),
+    recipe_id       uuid not null references public.recipes (id) on delete cascade,
+    ingredient_name text not null,
+    quantity        text not null,
+    unit            text not null,
+    is_optional     boolean not null default false
+);
+
+create index if not exists idx_recipe_ingredients_recipe
+    on public.recipe_ingredients (recipe_id);
+
+
+-- ---------------------------------------------------------------------------
+-- 18. shopping_lists
+--     One list per (user, recipe). scan_id links to the original scanned meal
+--     so the app can show a side-by-side comparison.
+-- ---------------------------------------------------------------------------
+create table if not exists public.shopping_lists (
+    id         uuid primary key default gen_random_uuid(),
+    user_id    uuid not null references public.users (id) on delete cascade,
+    recipe_id  uuid not null references public.recipes (id) on delete cascade,
+    scan_id    uuid references public.food_scans (id) on delete set null,
+    created_at timestamptz not null default now()
+);
+
+create index if not exists idx_shopping_lists_user
+    on public.shopping_lists (user_id, created_at desc);
+
+
+-- ---------------------------------------------------------------------------
+-- 19. shopping_list_items
+--     Individual ingredients the user needs to buy. already_have lets the
+--     user tick off items they already own. price_estimate is reserved for
+--     the future Trolley API integration.
+-- ---------------------------------------------------------------------------
+create table if not exists public.shopping_list_items (
+    id              uuid primary key default gen_random_uuid(),
+    list_id         uuid not null references public.shopping_lists (id) on delete cascade,
+    ingredient_name text not null,
+    quantity        text not null,
+    unit            text not null,
+    already_have    boolean not null default false,
+    price_estimate  numeric(6, 2)   -- nullable: populated by Trolley API later
+);
+
+create index if not exists idx_sli_list_id
+    on public.shopping_list_items (list_id);
+
+
+-- =============================================================================
+-- RLS — recipe / shopping tables
+-- recipes and recipe_ingredients are publicly readable (no user filter needed).
+-- shopping_lists and shopping_list_items are private to the owning user.
+-- =============================================================================
+
+alter table public.recipes              enable row level security;
+alter table public.recipe_ingredients   enable row level security;
+alter table public.shopping_lists       enable row level security;
+alter table public.shopping_list_items  enable row level security;
+
+
+-- --- recipes (public read, no user writes — backend service role inserts) ---
+
+drop policy if exists "recipes: public select"  on public.recipes;
+create policy "recipes: public select"
+    on public.recipes for select
+    using (true);
+
+
+-- --- recipe_ingredients (public read via parent recipe) ----------------------
+
+drop policy if exists "recipe_ingredients: public select"  on public.recipe_ingredients;
+create policy "recipe_ingredients: public select"
+    on public.recipe_ingredients for select
+    using (true);
+
+
+-- --- shopping_lists ----------------------------------------------------------
+
+drop policy if exists "shopping_lists: select own"  on public.shopping_lists;
+drop policy if exists "shopping_lists: insert own"  on public.shopping_lists;
+drop policy if exists "shopping_lists: delete own"  on public.shopping_lists;
+
+create policy "shopping_lists: select own"
+    on public.shopping_lists for select
+    using (auth.uid() = user_id);
+
+create policy "shopping_lists: insert own"
+    on public.shopping_lists for insert
+    with check (auth.uid() = user_id);
+
+create policy "shopping_lists: delete own"
+    on public.shopping_lists for delete
+    using (auth.uid() = user_id);
+
+
+-- --- shopping_list_items (access via parent list) ----------------------------
+
+drop policy if exists "sli: select via own list"  on public.shopping_list_items;
+drop policy if exists "sli: insert via own list"  on public.shopping_list_items;
+drop policy if exists "sli: update via own list"  on public.shopping_list_items;
+
+create policy "sli: select via own list"
+    on public.shopping_list_items for select
+    using (exists (
+        select 1 from public.shopping_lists sl
+        where sl.id = list_id and sl.user_id = auth.uid()
+    ));
+
+create policy "sli: insert via own list"
+    on public.shopping_list_items for insert
+    with check (exists (
+        select 1 from public.shopping_lists sl
+        where sl.id = list_id and sl.user_id = auth.uid()
+    ));
+
+create policy "sli: update via own list"
+    on public.shopping_list_items for update
+    using (exists (
+        select 1 from public.shopping_lists sl
+        where sl.id = list_id and sl.user_id = auth.uid()
+    ));
+
+
+-- =============================================================================
 -- Starter exercise library (47 exercises across all muscle groups)
 -- Guarded by DO block — safe to re-run.
 -- =============================================================================

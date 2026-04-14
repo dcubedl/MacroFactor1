@@ -103,6 +103,10 @@ class FoodScanResponse(BaseModel):
     fat_g: Optional[float] = None
     fiber_g: Optional[float] = None
 
+    # ID of the persisted row — returned so the frontend can reference it
+    # in subsequent calls (e.g. GET /api/meals/suggestions?scan_id=...)
+    scan_id: Optional[str] = None
+
     # XP
     xp_change: int = 0
     xp_status: Optional[XPStatus] = None
@@ -311,3 +315,91 @@ class DailySummaryResponse(BaseModel):
 class FoodStreakResponse(BaseModel):
     """Consecutive days with at least one meal logged."""
     streak: int
+
+
+# ---------------------------------------------------------------------------
+# Recipes & meal suggestions
+# ---------------------------------------------------------------------------
+
+class RecipeIngredientResponse(BaseModel):
+    id: str
+    ingredient_name: str
+    quantity: str
+    unit: str
+    is_optional: bool
+
+
+class RecipeResponse(BaseModel):
+    """Recipe summary (without ingredients)."""
+    id: str
+    name: str
+    cuisine: str
+    description: Optional[str] = None
+    calories: Optional[float] = None
+    protein_g: Optional[float] = None
+    carbs_g: Optional[float] = None
+    fat_g: Optional[float] = None
+    fiber_g: Optional[float] = None
+    prep_time_minutes: Optional[int] = None
+    servings: int
+    image_url: Optional[str] = None
+    is_curated: bool
+
+
+class RecipeDetailResponse(RecipeResponse):
+    """Full recipe including ingredient list."""
+    ingredients: List[RecipeIngredientResponse] = []
+
+
+class MealSuggestionsResponse(BaseModel):
+    improvement_tips: List[str]
+    suggested_recipes: List[RecipeResponse]
+
+
+class ShoppingListCreateRequest(BaseModel):
+    recipe_id: str
+    scan_id: Optional[str] = None
+    already_have: List[str] = []      # ingredient names the user owns
+
+
+class ShoppingListItemUpdateRequest(BaseModel):
+    ingredient_name: str
+    already_have: bool
+
+
+class ShoppingListUpdateRequest(BaseModel):
+    items: List[ShoppingListItemUpdateRequest]
+
+
+class ShoppingListItemResponse(BaseModel):
+    id: str
+    ingredient_name: str
+    quantity: str
+    unit: str
+    already_have: bool
+    price_estimate: Optional[float] = None
+
+
+class ShoppingListResponse(BaseModel):
+    id: str
+    recipe_id: str
+    scan_id: Optional[str] = None
+    created_at: str
+    items: List[ShoppingListItemResponse] = []
+
+
+class MealSideResponse(BaseModel):
+    """One side of a macro comparison."""
+    name: str
+    calories: Optional[float] = None
+    protein_g: Optional[float] = None
+    carbs_g: Optional[float] = None
+    fat_g: Optional[float] = None
+    fiber_g: Optional[float] = None
+    cost_per_serving: Optional[float] = None   # future Trolley API
+
+
+class MealComparisonResponse(BaseModel):
+    original_meal: MealSideResponse
+    new_meal: MealSideResponse
+    improvements: List[str]

@@ -1049,3 +1049,241 @@ async def get_todo_activity(
         return {"completed": 0}
 
     return {"completed": len(result.data or [])}
+
+
+# ---------------------------------------------------------------------------
+# Recipes
+# ---------------------------------------------------------------------------
+
+async def get_recipes(
+    cuisine: Optional[str] = None,
+    limit: int = 10,
+) -> list[dict]:
+    """
+    Return curated recipes, optionally filtered by cuisine.
+
+    Recipes are public (no user_id filter needed).
+    """
+    query = (
+        service_client
+        .table("recipes")
+        .select("*")
+        .order("name")
+        .limit(limit)
+    )
+    if cuisine:
+        query = query.eq("cuisine", cuisine)
+
+    try:
+        result = query.execute()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch recipes: {exc}")
+
+    return result.data or []
+
+
+async def get_recipe_with_ingredients(recipe_id: str) -> Optional[dict]:
+    """Return a recipe row with its ingredient list, or None if not found."""
+    try:
+        recipe_result = (
+            service_client
+            .table("recipes")
+            .select("*")
+            .eq("id", recipe_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch recipe: {exc}")
+
+    if not recipe_result.data:
+        return None
+
+    recipe = recipe_result.data[0]
+
+    try:
+        ing_result = (
+            service_client
+            .table("recipe_ingredients")
+            .select("*")
+            .eq("recipe_id", recipe_id)
+            .order("ingredient_name")
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch ingredients: {exc}")
+
+    recipe["ingredients"] = ing_result.data or []
+    return recipe
+
+
+async def get_curated_recipes_for_suggestions(
+    cuisine: Optional[str] = None,
+    limit: int = 30,
+) -> list[dict]:
+    """
+    Fetch curated recipes for the suggestions engine.
+
+    Pulls a generous batch so the scoring layer can filter on score in Python.
+    """
+    query = (
+        service_client
+        .table("recipes")
+        .select("*")
+        .eq("is_curated", True)
+        .order("name")
+        .limit(limit)
+    )
+    if cuisine:
+        query = query.eq("cuisine", cuisine)
+
+    try:
+        result = query.execute()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch recipes: {exc}")
+
+    return result.data or []
+
+
+# ---------------------------------------------------------------------------
+# food_scans — single-row lookup
+# ---------------------------------------------------------------------------
+
+async def get_food_scan_by_id(user_id: str, scan_id: str) -> Optional[dict]:
+    """Return a food_scan row owned by user_id, or None."""
+    try:
+        result = (
+            service_client
+            .table("food_scans")
+            .select("*")
+            .eq("id", scan_id)
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch scan: {exc}")
+
+    return result.data[0] if result.data else None
+
+
+# ---------------------------------------------------------------------------
+# Shopping lists
+# ---------------------------------------------------------------------------
+
+async def create_shopping_list(
+    user_id: str,
+    recipe_id: str,
+    scan_id: Optional[str],
+    items: list[dict],
+) -> dict:
+    """
+    Insert a shopping_list row and its items.
+
+    items should be dicts with: ingredient_name, quantity, unit, already_have.
+    """
+    list_row = {
+        "user_id":   user_id,
+        "recipe_id": recipe_id,
+    }
+    if scan_id:
+        list_row["scan_id"] = scan_id
+
+    try:
+        result = service_client.table("shopping_lists").insert(list_row).execute()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to create shopping list: {exc}")
+
+    if not result.data:
+        raise HTTPException(status_code=500, detail="Shopping list insert returned no data.")
+
+    list_id = result.data[0]["id"]
+
+    if items:
+        item_rows = [{"list_id": list_id, **item} for item in items]
+        try:
+            service_client.table("shopping_list_items").insert(item_rows).execute()
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to insert shopping list items: {exc}",
+            )
+
+    return result.data[0]
+
+
+async def get_shopping_list(user_id: str, list_id: str) -> Optional[dict]:
+    """Return a shopping list with its items, or None."""
+    try:
+        result = (
+            service_client
+            .table("shopping_lists")
+            .select("*")
+            .eq("id", list_id)
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch shopping list: {exc}")
+
+    if not result.data:
+        return None
+
+    sl = result.data[0]
+
+    try:
+        items_result = (
+            service_client
+            .table("shopping_list_items")
+            .select("*")
+            .eq("list_id", list_id)
+            .order("ingredient_name")
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch list items: {exc}")
+
+    sl["items"] = items_result.data or []
+    return sl
+
+
+async def update_shopping_list_items(
+    user_id: str,
+    list_id: str,
+    updates: list[dict],
+) -> dict:
+    """
+    Batch-update already_have for items in a shopping list.
+
+    updates: list of {ingredient_name: str, already_have: bool}
+    Raises 404 if the list doesn't belong to the user.
+    """
+    # Verify ownership
+    try:
+        check = (
+            service_client
+            .table("shopping_lists")
+            .select("id")
+            .eq("id", list_id)
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Ownership check failed: {exc}")
+
+    if not check.data:
+        raise HTTPException(status_code=404, detail="Shopping list not found.")
+
+    for update in updates:
+        try:
+            service_client.table("shopping_list_items").update(
+                {"already_have": update["already_have"]}
+            ).eq("list_id", list_id).eq(
+                "ingredient_name", update["ingredient_name"]
+            ).execute()
+        except Exception:
+            pass  # non-fatal per-item — continue with the rest
+
+    return await get_shopping_list(user_id, list_id)

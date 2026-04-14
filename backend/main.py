@@ -17,6 +17,7 @@ from routes.workouts import router as workouts_router
 from routes.habits import router as habits_router
 from routes.todos import router as todos_router
 from routes.profile import router as profile_router
+from routes.meals import router as meals_router
 
 logger = logging.getLogger("liferanked")
 
@@ -69,6 +70,7 @@ app.include_router(workouts_router, prefix="/api")
 app.include_router(habits_router,   prefix="/api")
 app.include_router(todos_router,    prefix="/api")
 app.include_router(profile_router,  prefix="/api")
+app.include_router(meals_router,    prefix="/api")
 
 
 # ---------------------------------------------------------------------------
