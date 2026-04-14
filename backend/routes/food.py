@@ -1,8 +1,12 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from datetime import date
+
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 
 from models.schemas import FoodScanResponse
+from services.auth import get_current_user
 from services.gemini import analyse_food_image
-from services.scoring import compute_score
+from services.scoring import compute_score, get_rank
+from database.supabase import save_food_scan, update_daily_score
 
 router = APIRouter()
 
@@ -10,15 +14,22 @@ ALLOWED_MIME_PREFIXES = ("image/jpeg", "image/png", "image/webp", "image/heic", 
 
 
 @router.post("/food/scan", response_model=FoodScanResponse)
-async def scan_food(photo: UploadFile = File(...)):
+async def scan_food(
+    photo: UploadFile = File(...),
+    user_id: str = Depends(get_current_user),
+):
     """
     Accept a food photo and return a health score + rank.
 
+    Requires a valid Bearer token in the Authorization header.
+
     Full flow:
-    1. Validate that the upload is an image.
-    2. Read bytes and forward to Gemini for food recognition + macro estimation.
-    3. Pass Gemini output to the scoring service to get score (0-100) + rank.
-    4. Return a FoodScanResponse with all macro and rank data to the frontend.
+    1. Validate the upload is an image.
+    2. Send to Gemini → food name + macro estimates.
+    3. Compute score (0–100) and rank tier.
+    4. Persist the scan to Supabase (food_scans table).
+    5. Update the user's daily aggregate score.
+    6. Return the full result to the frontend.
     """
 
     # --- Validate content type ---
@@ -35,16 +46,42 @@ async def scan_food(photo: UploadFile = File(...)):
     if len(image_bytes) == 0:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
-    # 100 MB hard cap — Gemini inline data limit is ~20 MB but this gives a
-    # friendly error before the SDK raises its own.
     if len(image_bytes) > 100 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="Image must be smaller than 100 MB.")
 
     # --- Gemini: food recognition + macro estimation ---
     gemini_result = await analyse_food_image(image_bytes, content_type)
 
-    # --- Scoring service: score + rank + explanation ---
+    # --- Scoring: score + rank + explanation ---
     score, rank, explanation = compute_score(gemini_result)
+
+    # --- Persist scan to Supabase ---
+    scan_data = {
+        "food_name":  gemini_result["food_name"],
+        "calories":   gemini_result["calories"],
+        "protein_g":  gemini_result["protein_g"],
+        "carbs_g":    gemini_result["carbs_g"],
+        "fat_g":      gemini_result["fat_g"],
+        "fiber_g":    gemini_result["fiber_g"],
+        "score":      score,
+        "rank":       rank,
+        "health_tip": gemini_result["health_tip"],
+    }
+    await save_food_scan(user_id, scan_data)
+
+    # --- Update daily aggregate (best-effort — don't fail the scan if it errors) ---
+    try:
+        today = date.today()
+        # get_rank is used here so the daily rank reflects the updated average,
+        # not just this scan's rank. update_daily_score recalculates the average
+        # internally and returns the new average; we derive the daily rank from it.
+        daily = await update_daily_score(user_id, today, score, rank)
+        if daily:
+            avg = daily.get("average_score", score)
+            _ = get_rank(int(avg))  # available for future use (e.g. daily rank in response)
+    except Exception:
+        # Daily score update is non-critical. The scan result is already saved.
+        pass
 
     return FoodScanResponse(
         food_name=gemini_result["food_name"],

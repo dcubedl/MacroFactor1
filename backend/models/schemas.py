@@ -1,6 +1,42 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from typing import Optional
 
+
+# ---------------------------------------------------------------------------
+# Auth
+# ---------------------------------------------------------------------------
+
+class SignupRequest(BaseModel):
+    email: EmailStr
+    password: str
+    username: Optional[str] = None
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class AuthResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user_id: str
+    email: str
+    # True when Supabase email confirmation is enabled and the user must
+    # verify their address before the token becomes usable.
+    requires_confirmation: bool = False
+
+
+class UserProfile(BaseModel):
+    id: str
+    email: str
+    username: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Food scan
+# ---------------------------------------------------------------------------
 
 class FoodScanResponse(BaseModel):
     """
