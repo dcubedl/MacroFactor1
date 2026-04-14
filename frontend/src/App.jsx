@@ -1348,27 +1348,10 @@ export default function App() {
   };
 
   // Called by AuthScreen after a successful login or signup.
-  // isNewUser = true  → persist onboarding data, show paywall.
-  // isNewUser = false → returning user, go straight home.
-  const handleAuthSuccess = async (authData, isNewUser) => {
-    if (isNewUser && pendingProfile) {
-      // Map onboarding state to backend field names
-      const activityMap = { 1.2: "low", 1.55: "moderate", 1.725: "high" };
-      const profilePayload = {
-        username:            pendingProfile.username    || undefined,
-        gender:              pendingProfile.gender      || undefined,
-        age:                 pendingProfile.age         ? Number(pendingProfile.age) : undefined,
-        height_cm:           pendingProfile.height_cm   || undefined,
-        weight_kg:           pendingProfile.weight_kg   || undefined,
-        activity_level:      activityMap[pendingProfile.activityFactor] || undefined,
-        fitness_goal:        pendingProfile.goal        || undefined,
-        dietary_preferences: pendingProfile.motivation?.length ? pendingProfile.motivation : undefined,
-        onboarding_completed: true,
-      };
-      try { await api.updateProfile(profilePayload); } catch { /* non-fatal */ }
-    }
-
-    // Build the local user object regardless of new/returning
+  // isNewUser = true  → just signed up → show paywall.
+  // isNewUser = false → logged in (returning user) → go straight home.
+  const handleAuthSuccess = (authData, isNewUser) => {
+    // Build local user immediately — no async needed for this
     const profile = pendingProfile || {};
     setUser({
       username: profile.username || authData.email?.split("@")[0] || "user",
@@ -1380,17 +1363,32 @@ export default function App() {
       fat:      profile.fat      || 65,
     });
 
-    if (isNewUser) {
-      setScr("paywall");
-    } else {
-      setScr("home");
+    // Route synchronously — don't block on the profile API call.
+    // New signups always go to paywall. Returning logins go straight home.
+    setScr(isNewUser ? "paywall" : "home");
+
+    // Fire profile update in the background after routing (non-blocking).
+    // Safe to run for any new signup; ignored if it fails.
+    if (isNewUser && pendingProfile) {
+      const activityMap = { 1.2: "low", 1.55: "moderate", 1.725: "high" };
+      api.updateProfile({
+        username:            pendingProfile.username    || undefined,
+        gender:              pendingProfile.gender      || undefined,
+        age:                 pendingProfile.age         ? Number(pendingProfile.age) : undefined,
+        height_cm:           pendingProfile.height_cm   || undefined,
+        weight_kg:           pendingProfile.weight_kg   || undefined,
+        activity_level:      activityMap[pendingProfile.activityFactor] || undefined,
+        fitness_goal:        pendingProfile.goal        || undefined,
+        dietary_preferences: pendingProfile.motivation?.length ? pendingProfile.motivation : undefined,
+        onboarding_completed: true,
+      }).catch(() => { /* non-fatal */ });
     }
   };
 
   return (
     <div className="shell">
       {scr === "onboarding" && <Onboarding onDone={handleOnboardingDone} />}
-      {scr === "auth"       && <AuthScreen onSuccess={handleAuthSuccess} />}
+      {scr === "auth"       && <AuthScreen onSuccess={handleAuthSuccess} defaultMode={pendingProfile ? "signup" : "login"} />}
       {scr === "paywall"    && <Paywall onDone={() => setScr("home")} />}
       {scr === "home"       && user && <Home user={user} go={setScr} setSel={setSel} />}
       {scr === "mr"         && <MealResult meal={sel} go={setScr} />}
