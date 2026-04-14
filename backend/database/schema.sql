@@ -1,7 +1,25 @@
 -- =============================================================================
 -- LifeRanked — Supabase Database Schema
--- Run this in the Supabase SQL editor (Dashboard → SQL Editor → New query).
+-- Run this entire file in Supabase SQL Editor to set up all tables.
+-- (Dashboard → SQL Editor → New query, paste this entire file and run.)
 -- Safe to re-run: all statements use IF NOT EXISTS / OR REPLACE guards.
+--
+-- Table order (respects FK dependencies):
+--   1. users            — mirrors auth.users
+--   2. food_scans       — per-meal photo scan results
+--   3. daily_scores     — daily nutrition aggregate
+--   4. nutrition_xp     — accumulated nutrition XP per user
+--   5. exercises        — global + custom exercise library
+--   6. workout_plans    — AI-generated weekly templates
+--   7. workout_plan_exercises — exercises within a plan
+--   8. workout_logs     — completed workout sessions
+--   9. workout_log_exercises  — per-exercise sets for each session
+--  10. workout_xp       — accumulated workout XP per user
+--  11. habits           — recurring daily/weekly habits
+--  12. habit_completions — per-day completion log
+--  13. habit_xp         — accumulated habit XP per user
+--  14. todos            — task list items
+--  15. todo_xp          — accumulated todo XP per user
 -- =============================================================================
 
 
@@ -90,6 +108,28 @@ create index if not exists idx_daily_scores_user_date
     on public.daily_scores (user_id, date desc);
 
 
+-- ---------------------------------------------------------------------------
+-- 4. nutrition_xp
+--    One row per user — upserted after every food scan.
+--    Rank only ever climbs unless a derank fires (sustained poor eating).
+-- ---------------------------------------------------------------------------
+create table if not exists public.nutrition_xp (
+    id         uuid primary key default gen_random_uuid(),
+    user_id    uuid not null references public.users (id) on delete cascade,
+    total_xp   integer not null default 0 check (total_xp >= 0),
+    rank       text not null default 'Bronze',
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+
+    unique (user_id)
+);
+
+drop trigger if exists trg_nutrition_xp_updated_at on public.nutrition_xp;
+create trigger trg_nutrition_xp_updated_at
+    before update on public.nutrition_xp
+    for each row execute function public.set_updated_at();
+
+
 -- =============================================================================
 -- Row Level Security
 -- Each user can only read and write their own rows.
@@ -100,6 +140,7 @@ create index if not exists idx_daily_scores_user_date
 alter table public.users        enable row level security;
 alter table public.food_scans   enable row level security;
 alter table public.daily_scores enable row level security;
+alter table public.nutrition_xp enable row level security;
 
 
 -- --- users -------------------------------------------------------------------
@@ -168,6 +209,25 @@ create policy "daily_scores: update own rows"
 
 create policy "daily_scores: delete own rows"
     on public.daily_scores for delete
+    using (auth.uid() = user_id);
+
+
+-- --- nutrition_xp ------------------------------------------------------------
+
+drop policy if exists "nutrition_xp: select own"  on public.nutrition_xp;
+drop policy if exists "nutrition_xp: insert own"  on public.nutrition_xp;
+drop policy if exists "nutrition_xp: update own"  on public.nutrition_xp;
+
+create policy "nutrition_xp: select own"
+    on public.nutrition_xp for select
+    using (auth.uid() = user_id);
+
+create policy "nutrition_xp: insert own"
+    on public.nutrition_xp for insert
+    with check (auth.uid() = user_id);
+
+create policy "nutrition_xp: update own"
+    on public.nutrition_xp for update
     using (auth.uid() = user_id);
 
 
@@ -254,8 +314,23 @@ create table if not exists public.workout_logs (
     plan_id      uuid references public.workout_plans (id) on delete set null,
     started_at   timestamptz,
     completed_at timestamptz,
+    logged_at    timestamptz not null default now(),
     notes        text
 );
+
+-- Back-fill logged_at for any rows created before this column existed.
+do $$ begin
+    if exists (
+        select 1 from information_schema.columns
+        where table_schema = 'public'
+          and table_name   = 'workout_logs'
+          and column_name  = 'logged_at'
+    ) then
+        update public.workout_logs
+           set logged_at = coalesce(completed_at, now())
+         where logged_at is null;
+    end if;
+end $$;
 
 create index if not exists idx_workout_logs_user_completed
     on public.workout_logs (user_id, completed_at desc);

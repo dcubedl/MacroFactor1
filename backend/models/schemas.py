@@ -240,3 +240,74 @@ class TodoXPResponse(BaseModel):
     rank: str
     rank_progress: float
     xp_to_next_rank: Optional[int] = None
+
+
+# ---------------------------------------------------------------------------
+# Profile / Overall score
+# ---------------------------------------------------------------------------
+
+class FeatureXPSummary(BaseModel):
+    """XP + rank summary for one feature pillar."""
+    total_xp: int
+    rank: str
+    rank_progress: float
+    xp_to_next_rank: Optional[int] = None
+
+
+class ProfileOverviewResponse(BaseModel):
+    """All-features XP snapshot plus the combined LifeRanked overall rank."""
+    nutrition: FeatureXPSummary
+    workouts: FeatureXPSummary
+    habits: FeatureXPSummary
+    todos: FeatureXPSummary
+    overall: FeatureXPSummary
+
+
+class ActivityWindow(BaseModel):
+    """Activity counts for one feature over a time window."""
+    nutrition_scans: int
+    nutrition_avg_score: Optional[float] = None
+    workout_sessions: int
+    habit_completions: int
+    todos_completed: int
+
+
+class ProfileHistoryResponse(BaseModel):
+    """Activity summary for the last 7 and 30 days."""
+    last_7_days: ActivityWindow
+    last_30_days: ActivityWindow
+
+
+# ---------------------------------------------------------------------------
+# Food history / summary
+# ---------------------------------------------------------------------------
+
+class FoodHistoryResponse(BaseModel):
+    """Paginated food scan history."""
+    items: list
+    total: int
+    limit: int
+    offset: int
+    has_more: bool
+
+
+class MacroTotals(BaseModel):
+    calories: Optional[float] = None
+    protein_g: Optional[float] = None
+    carbs_g: Optional[float] = None
+    fat_g: Optional[float] = None
+    fiber_g: Optional[float] = None
+
+
+class DailySummaryResponse(BaseModel):
+    """Today's meals and aggregate nutrition data."""
+    date: str
+    meals: list
+    meal_count: int
+    average_score: Optional[float] = None
+    totals: MacroTotals
+
+
+class FoodStreakResponse(BaseModel):
+    """Consecutive days with at least one meal logged."""
+    streak: int

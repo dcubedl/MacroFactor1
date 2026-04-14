@@ -831,3 +831,221 @@ async def upsert_todo_xp(user_id: str, new_total_xp: int, rank: str) -> dict:
         raise HTTPException(status_code=500, detail="Todo XP upsert returned no data.")
 
     return result.data[0]
+
+
+# ---------------------------------------------------------------------------
+# nutrition_xp
+# ---------------------------------------------------------------------------
+
+async def get_nutrition_xp(user_id: str) -> Optional[dict]:
+    """Return the user's accumulated nutrition XP row, or None."""
+    try:
+        result = (
+            service_client
+            .table("nutrition_xp")
+            .select("*")
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch nutrition XP: {exc}")
+
+    return result.data[0] if result.data else None
+
+
+async def upsert_nutrition_xp(user_id: str, new_total_xp: int, rank: str) -> dict:
+    """Upsert the nutrition_xp row for a user."""
+    payload = {
+        "user_id":  user_id,
+        "total_xp": max(0, new_total_xp),
+        "rank":     rank,
+    }
+    try:
+        result = (
+            service_client
+            .table("nutrition_xp")
+            .upsert(payload, on_conflict="user_id")
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to update nutrition XP: {exc}")
+
+    if not result.data:
+        raise HTTPException(status_code=500, detail="Nutrition XP upsert returned no data.")
+
+    return result.data[0]
+
+
+# ---------------------------------------------------------------------------
+# food_scans — extended queries for history / summary / streak
+# ---------------------------------------------------------------------------
+
+async def get_food_scans_paginated(
+    user_id: str,
+    limit: int = 10,
+    offset: int = 0,
+) -> tuple[list[dict], int]:
+    """
+    Return a page of food scans for the user plus the total count.
+
+    Returns (items, total_count).
+    """
+    try:
+        result = (
+            service_client
+            .table("food_scans")
+            .select("*", count="exact")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .range(offset, offset + limit - 1)
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch scan history: {exc}")
+
+    return result.data or [], result.count or 0
+
+
+async def get_food_scans_for_date(user_id: str, target_date: DateType) -> list[dict]:
+    """Return all food scans logged on a specific calendar date."""
+    from datetime import timedelta
+    next_day = target_date + timedelta(days=1)
+    try:
+        result = (
+            service_client
+            .table("food_scans")
+            .select("*")
+            .eq("user_id", user_id)
+            .gte("created_at", target_date.isoformat())
+            .lt("created_at", next_day.isoformat())
+            .order("created_at")
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch daily scans: {exc}")
+
+    return result.data or []
+
+
+async def get_food_scan_dates(user_id: str) -> list[DateType]:
+    """Return the unique calendar dates on which the user has logged a meal."""
+    try:
+        result = (
+            service_client
+            .table("food_scans")
+            .select("created_at")
+            .eq("user_id", user_id)
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch scan dates: {exc}")
+
+    dates: set[DateType] = set()
+    for row in result.data or []:
+        raw = row.get("created_at", "")
+        if raw:
+            dates.add(DateType.fromisoformat(raw[:10]))
+    return list(dates)
+
+
+# ---------------------------------------------------------------------------
+# Profile activity summary helpers
+# ---------------------------------------------------------------------------
+
+async def get_nutrition_activity(
+    user_id: str,
+    since_date: DateType,
+) -> dict:
+    """
+    Return nutrition activity since a date:
+        {"scans": int, "avg_score": float | None}
+    """
+    try:
+        result = (
+            service_client
+            .table("food_scans")
+            .select("score")
+            .eq("user_id", user_id)
+            .gte("created_at", since_date.isoformat())
+            .execute()
+        )
+    except Exception:
+        return {"scans": 0, "avg_score": None}
+
+    rows = result.data or []
+    if not rows:
+        return {"scans": 0, "avg_score": None}
+
+    avg = round(sum(r["score"] for r in rows) / len(rows), 1)
+    return {"scans": len(rows), "avg_score": avg}
+
+
+async def get_workout_activity(
+    user_id: str,
+    since_date: DateType,
+) -> dict:
+    """
+    Return workout activity since a date:
+        {"sessions": int}
+    """
+    try:
+        result = (
+            service_client
+            .table("workout_logs")
+            .select("id")
+            .eq("user_id", user_id)
+            .gte("logged_at", since_date.isoformat())
+            .execute()
+        )
+    except Exception:
+        return {"sessions": 0}
+
+    return {"sessions": len(result.data or [])}
+
+
+async def get_habit_activity(
+    user_id: str,
+    since_date: DateType,
+) -> dict:
+    """
+    Return habit activity since a date:
+        {"completions": int}
+    """
+    try:
+        result = (
+            service_client
+            .table("habit_completions")
+            .select("id")
+            .eq("user_id", user_id)
+            .gte("completed_at", since_date.isoformat())
+            .execute()
+        )
+    except Exception:
+        return {"completions": 0}
+
+    return {"completions": len(result.data or [])}
+
+
+async def get_todo_activity(
+    user_id: str,
+    since_date: DateType,
+) -> dict:
+    """
+    Return todo activity since a date:
+        {"completed": int}
+    """
+    try:
+        result = (
+            service_client
+            .table("todos")
+            .select("id")
+            .eq("user_id", user_id)
+            .eq("completed", True)
+            .gte("completed_at", since_date.isoformat())
+            .execute()
+        )
+    except Exception:
+        return {"completed": 0}
+
+    return {"completed": len(result.data or [])}
